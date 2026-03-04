@@ -1,14 +1,15 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import os
 import math
 import gspread
 from google.oauth2.service_account import Credentials
+import json
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Torre de Controle | Magalu", page_icon="🛍️", layout="wide", initial_sidebar_state="expanded")
 
+# --- INJEÇÃO DE CSS (Identidade Visual Magazine Luiza) ---
 st.markdown("""
 <style>
     .stApp { background-color: #F4F6F9; color: #333333; }
@@ -26,25 +27,22 @@ def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 # --- CONEXÃO INTELIGENTE (LOCAL / NUVEM) ---
-import json
-
-# --- CONEXÃO INTELIGENTE (LOCAL / NUVEM) ---
 def conectar_google_sheets():
     try:
-        # Tenta ler o Cofre da Nuvem
+        # Tenta ler o Cofre de Segurança na Nuvem (Streamlit Cloud)
         cred_dict = json.loads(st.secrets["google_json"])
         creds = Credentials.from_service_account_info(cred_dict, scopes=["https://www.googleapis.com/auth/spreadsheets"])
     except:
-        # Se falhar (no seu PC), lê o arquivo físico
+        # Se falhar, tenta ler o arquivo físico (Seu PC)
         caminho_local = 'C:/Users/ign_oliveira/Documents/Analises Agendas/credential_key.json'
         creds = Credentials.from_service_account_file(caminho_local, scopes=["https://www.googleapis.com/auth/spreadsheets"])
     
     client = gspread.authorize(creds)
     return client.open_by_key('1WA5GjT1f-jpQ4Sw_OfvXBERyz5MehfH7uaFrIfUMrtw')
 
-@st.cache_data(ttl=300)
+# --- EXTRAÇÃO DOS DADOS DO GOOGLE SHEETS ---
+@st.cache_data(ttl=300) # Atualiza a cada 5 minutos
 def carregar_dados():
-    # Agora não usamos mais caminhos de pasta 'C:/Users/...'
     df = pd.DataFrame()
     df_itens = pd.DataFrame()
     df_plan = pd.DataFrame()
@@ -52,53 +50,90 @@ def carregar_dados():
     try:
         planilha = conectar_google_sheets()
         
-        # 1. Lê a aba CONSOLIDADO (Agendas) do Sheets
+        # 1. ABA CONSOLIDADO (Agendas)
         ws_consolidado = planilha.worksheet("CONSOLIDADO")
         df = pd.DataFrame(ws_consolidado.get_all_records())
         
-        # Ajustes de colunas do Consolidado
-        df['Data'] = pd.to_datetime(df['Data'], format='%d/%m/%Y', errors='coerce')
-        df['Agenda_Texto'] = df['Agenda'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-        df['Canal'] = df['Agenda_Texto'].apply(lambda x: 'Fulfillment' if len(x) >= 6 else '1P Fornecedor')
+        if not df.empty:
+            df['Data'] = pd.to_datetime(df['Data'], format='%d/%m/%Y', errors='coerce')
+            df['Agenda_Texto'] = df['Agenda'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+            df['Canal'] = df['Agenda_Texto'].apply(lambda x: 'Fulfillment' if len(x) >= 6 else '1P Fornecedor')
 
-        # 2. Lê a aba Item Agenda (Itens detalhados) do Sheets
-        ws_itens = planilha.worksheet("Item Agenda")
-        df_itens = pd.DataFrame(ws_itens.get_all_records())
-        df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+            # Lógica de Tempo APC
+            def calcular_minutos(row):
+                canal = row.get('Canal', '')
+                fornecedor = str(row.get('Fornecedor', '')).strip().upper()
+                if canal == 'Fulfillment':
+                    return 60.0 # Tempo padrão de Fullfillment
+                else:
+                    linhas = str(row.get('Linhas', '')).upper().split(',')
+                    maior_tempo = 0 
+                    for l in linhas:
+                        t = 90
+                        if 'MADEIRA' in l: t = 180 if 'TUBRAX' in fornecedor else 427
+                        elif 'PNEU' in l: t = 240
+                        elif 'TRANSFERENCIA RUIM' in l: t = 40
+                        elif 'TRANSFERENCIA' in l: t = 240
+                        elif 'MERCADO' in l: t = 150
+                        elif 'ELETRO' in l: t = 95
+                        elif 'COFRE' in l: t = 90
+                        elif 'IMAGEM' in l: t = 90
+                        elif 'COLCHÃO' in l or 'ESTOFADO' in l: t = 60
+                        if t > maior_tempo: maior_tempo = t
+                    return maior_tempo
+            
+            df['Tempo_APC_Minutos'] = df.apply(calcular_minutos, axis=1)
 
-        # 3. Lê a aba PLANEJAMENTO do Sheets
-        ws_plan = planilha.worksheet("PLANEJAMENTO")
-        df_plan = pd.DataFrame(ws_plan.get_all_records())
-        
-        # Tradução de Categorias (Lógica que já tínhamos)
-        df_plan.columns = df_plan.columns.str.strip().str.lower()
-        if 'data' in df_plan.columns:
-            df_plan['data'] = pd.to_datetime(df_plan['data'], errors='coerce', dayfirst=True).dt.normalize()
-        
-        def traduzir_categoria(cat):
-            c = str(cat).upper().strip()
-            if 'MADEIRA SIMPLES' in c: return 'COLCHÕES/ESTOFADOS'
-            if 'COLCH' in c or 'ESTOFADO' in c or 'FREEPASS' in c: return 'COLCHÕES/ESTOFADOS'
-            if any(x in c for x in ['AR E VENTILA', 'AUDIO', 'BB/BR', 'CLIENTE', 'ECOMM', 'FERRAMENTA', 'DIVERSOS', 'LIVRO', 'MODA', 'PORTATEIS']): return 'DIVERSOS PEQUENOS'
-            if any(x in c for x in ['BELEZA', 'BENS DE CONSUMO', 'MERCADO']): return 'MERCADO'
-            if 'COFRE' in c: return 'COFRES'
-            if 'ELETRO PESADO' in c: return 'ELETRO PESADO'
-            if 'IMAGEM' in c: return 'IMAGEM'
-            if 'MADEIRA' in c or 'FRACIONADO' in c: return 'MADEIRA'
-            if 'PNEU' in c: return 'PNEUS'
-            return c
-        
-        df_plan['categoria'] = df_plan['categoria'].apply(traduzir_categoria)
+        # 2. ABA ITEM AGENDA (Itens detalhados)
+        try:
+            ws_itens = planilha.worksheet("Item Agenda")
+            df_itens = pd.DataFrame(ws_itens.get_all_records())
+            if not df_itens.empty:
+                df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+        except:
+            pass # Continua se a aba não existir
 
-    except Exception as e:
-        st.error(f"🚨 Erro ao carregar dados do Google Sheets: {e}")
+        # 3. ABA PLANEJAMENTO
+        try:
+            ws_plan = planilha.worksheet("PLANEJAMENTO")
+            df_plan = pd.DataFrame(ws_plan.get_all_records())
+            
+            if not df_plan.empty:
+                df_plan.columns = df_plan.columns.str.strip().str.lower()
+                if 'data' in df_plan.columns:
+                    df_plan['data'] = pd.to_datetime(df_plan['data'], format='%d/%m/%Y', errors='coerce').dt.normalize()
+                if 'quantidade_planejado' in df_plan.columns:
+                    df_plan['quantidade_planejado'] = pd.to_numeric(df_plan['quantidade_planejado'], errors='coerce').fillna(0)
+                if 'quantidade_real' in df_plan.columns:
+                    df_plan['quantidade_real'] = pd.to_numeric(df_plan['quantidade_real'], errors='coerce').fillna(0)
+                
+                if 'categoria' in df_plan.columns:
+                    def traduzir_categoria(cat):
+                        c = str(cat).upper().strip()
+                        if 'MADEIRA SIMPLES' in c: return 'COLCHÕES/ESTOFADOS'
+                        if 'COLCH' in c or 'ESTOFADO' in c or 'FREEPASS' in c: return 'COLCHÕES/ESTOFADOS'
+                        if any(x in c for x in ['AR E VENTILA', 'AUDIO', 'BB/BR', 'CLIENTE', 'ECOMM', 'FERRAMENTA', 'DIVERSOS', 'IMPORTADO', 'LIVRO', 'MODA', 'MOVEIS ENCOMENDA', 'MULTI CD', 'PORTATEIS', 'ROTEIRO', 'UD/CM']): return 'DIVERSOS PEQUENOS'
+                        if any(x in c for x in ['BELEZA', 'BENS DE CONSUMO', 'MERCADO']): return 'MERCADO'
+                        if 'COFRE' in c: return 'COFRES'
+                        if 'ELETRO PESADO' in c: return 'ELETRO PESADO'
+                        if 'IMAGEM' in c: return 'IMAGEM'
+                        if 'MADEIRA' in c or 'FRACIONADO' in c: return 'MADEIRA'
+                        if 'PNEU' in c: return 'PNEUS'
+                        return c 
+                        
+                    df_plan['categoria'] = df_plan['categoria'].apply(traduzir_categoria)
+        except:
+            pass # Continua se a aba não existir
+            
+    except Exception as e: 
+        st.error(f"🚨 Erro crítico ao conectar com o Google Sheets: {e}")
         
     return df, df_itens, df_plan
 
 df, df_itens, df_plan = carregar_dados()
 
-if df is None:
-    st.error("🚨 Base CSV não encontrada! Rode o extrator primeiro.")
+if df.empty:
+    st.warning("⏳ Aguardando dados na aba 'CONSOLIDADO' do Google Sheets para renderizar o Dashboard.")
     st.stop()
 
 # --- BARRA LATERAL (MENU & FILTROS) ---
@@ -274,7 +309,7 @@ if pagina == "🏠 Painel Operacional":
 
 
 # ==============================================================================
-# PÁGINA 2: MATRIZ DE PLANEJAMENTO (LENDO E ESCREVENDO NA NUVEM)
+# PÁGINA 2: MATRIZ DE PLANEJAMENTO (S&OP COMERCIAL)
 # ==============================================================================
 elif pagina == "🧩 Matriz de Planejamento":
     st.title("🧩 Matriz S&OP: Comercial vs Operação")
@@ -289,7 +324,6 @@ elif pagina == "🧩 Matriz de Planejamento":
         categorias_existentes = sorted([c for c in df_plan['categoria'].unique() if pd.notna(c) and str(c).strip() != ''])
         df_base_categorias = pd.DataFrame({'CATEGORIA': categorias_existentes})
         
-        # Tenta ler a aba METAS_LEGO para puxar os dados que já foram salvos antes
         try:
             planilha = conectar_google_sheets()
             ws_metas = planilha.worksheet("METAS_LEGO")
@@ -307,19 +341,30 @@ elif pagina == "🧩 Matriz de Planejamento":
         df_metas_iniciais['LEGO (Meta)'] = df_metas_iniciais['LEGO (Meta)'].astype(int)
 
         with st.expander("📝 CLIQUE AQUI PARA PREENCHER AS METAS DO MÊS", expanded=False):
-            # A tabela editável no meio da tela
             df_metas_editadas = st.data_editor(df_metas_iniciais, use_container_width=True, hide_index=True)
             
             # BOTÃO DE SALVAR NA NUVEM!
             if st.button("💾 Salvar Metas na Nuvem"):
                 try:
+                    df_para_salvar = df_metas_editadas.copy()
+                    df_para_salvar['LEGO (Meta)'] = df_para_salvar['LEGO (Meta)'].astype(str)
+                    dados_finais = [df_para_salvar.columns.tolist()] + df_para_salvar.values.tolist()
+
                     planilha = conectar_google_sheets()
-                    ws_metas = planilha.worksheet("METAS_LEGO")
-                    ws_metas.clear() # Limpa a aba
-                    ws_metas.update("A1", [df_metas_editadas.columns.values.tolist()] + df_metas_editadas.values.tolist()) # Cola os dados novos
-                    st.success("✅ Metas sincronizadas com o Banco de Dados do Google Sheets!")
+                    try:
+                        ws_metas = planilha.worksheet("METAS_LEGO")
+                    except:
+                        ws_metas = planilha.add_worksheet(title="METAS_LEGO", rows="100", cols="2")
+                        
+                    ws_metas.clear() 
+                    try:
+                        ws_metas.update(values=dados_finais, range_name="A1")
+                    except:
+                        ws_metas.update("A1", dados_finais)
+                        
+                    st.success("✅ Metas sincronizadas com sucesso no Google Sheets!")
                 except Exception as e:
-                    st.error(f"Erro ao salvar na nuvem: {e}")
+                    st.error(f"🚨 Erro ao salvar na nuvem: {e}")
 
         # --- 2. CÁLCULOS DO RESUMO EXECUTIVO ---
         resumo_real = df_plan_filtrado.groupby('categoria')['quantidade_real'].sum().reset_index()
@@ -407,5 +452,3 @@ elif pagina == "🧩 Matriz de Planejamento":
             st.info("Nenhum dado encontrado para o período filtrado.")
     else:
         st.warning("⚠️ Planilha 'PLANEJAMENTO' vazia ou não encontrada no Google Sheets.")
-
-
