@@ -29,11 +29,9 @@ def formatar_moeda(valor):
 # --- CONEXÃO INTELIGENTE (LOCAL / NUVEM) ---
 def conectar_google_sheets():
     try:
-        # Tenta ler o Cofre de Segurança na Nuvem (Streamlit Cloud)
         cred_dict = json.loads(st.secrets["google_json"])
         creds = Credentials.from_service_account_info(cred_dict, scopes=["https://www.googleapis.com/auth/spreadsheets"])
     except:
-        # Se falhar, tenta ler o arquivo físico (Seu PC)
         caminho_local = 'C:/Users/ign_oliveira/Documents/Analises Agendas/credential_key.json'
         creds = Credentials.from_service_account_file(caminho_local, scopes=["https://www.googleapis.com/auth/spreadsheets"])
     
@@ -50,21 +48,52 @@ def carregar_dados():
     try:
         planilha = conectar_google_sheets()
         
-        # 1. ABA CONSOLIDADO (Agendas)
+        # 1. ABA CONSOLIDADO (Agendas) - COM LIMPEZA AUTOMÁTICA
         ws_consolidado = planilha.worksheet("CONSOLIDADO")
-        df = pd.DataFrame(ws_consolidado.get_all_records())
+        df_raw = pd.DataFrame(ws_consolidado.get_all_records())
         
-        if not df.empty:
+        if not df_raw.empty:
+            df_raw.columns = df_raw.columns.str.strip()
+            
+            mapeamento = {
+                'Status_Traduzido': 'Status',
+                'Status Carga': 'Status',
+                'Status da Carga': 'Status',
+                'Ofensor': 'É Ofensor?',
+                'É Ofensor': 'É Ofensor?',
+                'Linha': 'Linhas'
+            }
+            df_raw = df_raw.rename(columns=mapeamento)
+            
+            # Garante que as colunas existam para não quebrar o código
+            for col in ['Status', 'É Ofensor?', 'Linhas', 'Fornecedor', 'Data', 'Agenda']:
+                if col not in df_raw.columns:
+                    df_raw[col] = ''
+            for col in ['Qtd SKUs', 'Qtd Peças']:
+                if col not in df_raw.columns:
+                    df_raw[col] = 0
+                else:
+                    df_raw[col] = pd.to_numeric(df_raw[col], errors='coerce').fillna(0)
+
+            # Agrupa para não contar a mesma agenda de 1P duas vezes
+            df = df_raw.groupby(['Data', 'Agenda']).agg({
+                'Fornecedor': 'first',
+                'Status': 'first',
+                'Linhas': lambda x: ', '.join(x.dropna().astype(str).unique()),
+                'Qtd SKUs': 'sum',
+                'Qtd Peças': 'sum',
+                'É Ofensor?': 'first'
+            }).reset_index()
+
             df['Data'] = pd.to_datetime(df['Data'], format='%d/%m/%Y', errors='coerce')
             df['Agenda_Texto'] = df['Agenda'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
             df['Canal'] = df['Agenda_Texto'].apply(lambda x: 'Fulfillment' if len(x) >= 6 else '1P Fornecedor')
 
-            # Lógica de Tempo APC
             def calcular_minutos(row):
                 canal = row.get('Canal', '')
                 fornecedor = str(row.get('Fornecedor', '')).strip().upper()
                 if canal == 'Fulfillment':
-                    return 60.0 # Tempo padrão de Fullfillment
+                    return 60.0 
                 else:
                     linhas = str(row.get('Linhas', '')).upper().split(',')
                     maior_tempo = 0 
@@ -91,7 +120,7 @@ def carregar_dados():
             if not df_itens.empty:
                 df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
         except:
-            pass # Continua se a aba não existir
+            pass 
 
         # 3. ABA PLANEJAMENTO
         try:
@@ -123,7 +152,7 @@ def carregar_dados():
                         
                     df_plan['categoria'] = df_plan['categoria'].apply(traduzir_categoria)
         except:
-            pass # Continua se a aba não existir
+            pass 
             
     except Exception as e: 
         st.error(f"🚨 Erro crítico ao conectar com o Google Sheets: {e}")
