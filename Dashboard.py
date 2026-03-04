@@ -26,18 +26,20 @@ def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 # --- CONEXÃO INTELIGENTE (LOCAL / NUVEM) ---
+import json
+
+# --- CONEXÃO INTELIGENTE (LOCAL / NUVEM) ---
 def conectar_google_sheets():
     try:
-        # Quando estiver no Streamlit Cloud, ele vai usar isso:
-        cred_dict = st.secrets["gcp_service_account"]
+        # Tenta ler o Cofre da Nuvem
+        cred_dict = json.loads(st.secrets["google_json"])
         creds = Credentials.from_service_account_info(cred_dict, scopes=["https://www.googleapis.com/auth/spreadsheets"])
     except:
-        # Como você está no seu PC agora, ele usa isso:
+        # Se falhar (no seu PC), lê o arquivo físico
         caminho_local = 'C:/Users/ign_oliveira/Documents/Analises Agendas/credential_key.json'
         creds = Credentials.from_service_account_file(caminho_local, scopes=["https://www.googleapis.com/auth/spreadsheets"])
     
     client = gspread.authorize(creds)
-    # Substitua pelo ID da sua planilha se precisar, mas deixei o que você mandou antes:
     return client.open_by_key('1WA5GjT1f-jpQ4Sw_OfvXBERyz5MehfH7uaFrIfUMrtw')
 
 @st.cache_data(ttl=300) # O robô limpa a memória e atualiza os dados a cada 5 minutos!
@@ -443,3 +445,4 @@ elif pagina == "🧩 Matriz de Planejamento":
             st.info("Nenhum dado encontrado para o período filtrado.")
     else:
         st.warning("⚠️ Planilha 'PLANEJAMENTO' vazia ou não encontrada no Google Sheets.")
+
