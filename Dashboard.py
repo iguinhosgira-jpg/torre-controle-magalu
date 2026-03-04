@@ -57,10 +57,12 @@ def carregar_dados():
             df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
             df_raw = df_raw.loc[:, df_raw.columns != '']
             
-            # Limpa espaços invisíveis das colunas
             df_raw.columns = df_raw.columns.str.strip()
             
+            # TRADUTOR DE COLUNAS
             mapeamento = {
+                'STATUS AGENDA': 'Status',
+                'Status Agenda': 'Status',
                 'Status_Traduzido': 'Status',
                 'Status Carga': 'Status',
                 'Status da Carga': 'Status',
@@ -70,7 +72,7 @@ def carregar_dados():
             }
             df_raw = df_raw.rename(columns=mapeamento)
             
-            # Garante que as colunas existam
+            # Garante colunas obrigatórias
             for col in ['Status', 'É Ofensor?', 'Linhas', 'Fornecedor', 'Data', 'Agenda']:
                 if col not in df_raw.columns:
                     df_raw[col] = ''
@@ -80,13 +82,23 @@ def carregar_dados():
                 else:
                     df_raw[col] = pd.to_numeric(df_raw[col], errors='coerce').fillna(0)
 
-            # --- LIMPEZA DE ESPAÇOS INVISÍVEIS PARA OS KPIs FUNCIONAREM ---
-            df_raw['Status'] = df_raw['Status'].astype(str).str.strip()
+            # --- TRADUTOR UNIVERSAL DE STATUS (MÁGICA DOS KPIs) ---
+            def padronizar_status(val):
+                v = str(val).upper().strip()
+                if 'AGENDADO' in v: return 'Agendado'
+                if 'PATIO' in v or 'PÁTIO' in v or 'AGUARDANDO' in v: return 'Aguardando'
+                if 'RECEB' in v: return 'Recebido'
+                if 'COMPARECEU' in v or 'SHOW' in v: return 'No-Show'
+                if 'TRANSITO' in v or 'TRÂNSITO' in v: return 'Em Trânsito'
+                if 'DESCARGA' in v: return 'Em Descarga'
+                return v.title()
+
+            df_raw['Status'] = df_raw['Status'].apply(padronizar_status)
             df_raw['É Ofensor?'] = df_raw['É Ofensor?'].astype(str).str.strip()
             df_raw['Fornecedor'] = df_raw['Fornecedor'].astype(str).str.strip()
             df_raw['Data'] = pd.to_datetime(df_raw['Data'], errors='coerce', dayfirst=True)
 
-            # Remove linhas vazias
+            # Remove linhas sem Agenda
             df_raw = df_raw[df_raw['Agenda'].astype(str).str.strip() != '']
 
             # Agrupa para não contar a mesma agenda duas vezes
@@ -137,10 +149,8 @@ def carregar_dados():
                 df_itens = df_itens.loc[:, ~df_itens.columns.duplicated()]
                 df_itens = df_itens.loc[:, df_itens.columns != '']
                 
-                # Tira espaços dos nomes das colunas
                 df_itens.columns = df_itens.columns.str.strip()
                 
-                # Previne o erro "KeyError: Agenda" criando a coluna caso o sistema não envie
                 if 'Agenda' not in df_itens.columns:
                     df_itens['Agenda'] = ''
                     
@@ -361,11 +371,9 @@ if pagina == "🏠 Painel Operacional":
         st.markdown("### 📦 Inspecionar Carga")
         agenda_selecionada = st.selectbox("Escolha uma agenda do dia para ver a lista de SKUs embarcados:", df_dia_critico['Agenda_Texto'].unique())
         
-        # Blindagem extra no momento de procurar os itens
         if not df_itens.empty and 'Agenda' in df_itens.columns:
             df_produtos_agenda = df_itens[df_itens['Agenda'] == str(agenda_selecionada)]
             if not df_produtos_agenda.empty: 
-                # Se faltar alguma coluna, ele mostra o que tem
                 colunas_exibir = [c for c in ['SKU', 'Descrição', 'Linha', 'Categoria'] if c in df_produtos_agenda.columns]
                 st.dataframe(df_produtos_agenda.groupby(colunas_exibir).size().reset_index(name='Qtd Itens'), use_container_width=True, hide_index=True)
             else: 
