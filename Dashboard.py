@@ -460,7 +460,7 @@ elif pagina == "🧩 Matriz de Planejamento":
         
         col_e1, col_e2, col_e3, col_e4 = st.columns(4)
         col_e1.metric("Meta Comercial (LEGO)", f"{meta_total:,.0f}".replace(',', '.'))
-        col_e2.metric("Agendado na Doca", f"{realizado_total:,.0f}".replace(',', '.'))
+        col_e2.metric("Agendado", f"{realizado_total:,.0f}".replace(',', '.'))
         col_e3.metric("Saldo de Vagas Restantes", f"{saldo_total:,.0f}".replace(',', '.'), "Risco Global" if saldo_total < 0 else "Capacidade Livre", delta_color="normal" if saldo_total >= 0 else "inverse")
         col_e4.metric("Categorias Estouradas", estouradas, "Acima da Meta", delta_color="inverse")
 
@@ -526,5 +526,6 @@ elif pagina == "🧩 Matriz de Planejamento":
             st.info("Nenhum dado encontrado para o período filtrado.")
     else:
         st.warning("⚠️ Planilha 'PLANEJAMENTO' vazia ou não encontrada no Google Sheets.")
+
 
 
