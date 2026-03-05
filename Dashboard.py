@@ -210,7 +210,7 @@ st.sidebar.image("https://magalog.com.br/opengraph-image.jpg?fdd536e7d35ec9da", 
 st.sidebar.markdown("<br>", unsafe_allow_html=True)
 
 st.sidebar.header("📍 Menu de Navegação")
-pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "🧩 Matriz de Planejamento"])
+pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "🧩 Planejamento Lego"])
 st.sidebar.markdown("---")
 
 st.sidebar.header("📅 Período de Análise")
@@ -526,6 +526,7 @@ elif pagina == "🧩 Matriz de Planejamento":
             st.info("Nenhum dado encontrado para o período filtrado.")
     else:
         st.warning("⚠️ Planilha 'PLANEJAMENTO' vazia ou não encontrada no Google Sheets.")
+
 
 
 
