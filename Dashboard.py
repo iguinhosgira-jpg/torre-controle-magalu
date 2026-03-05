@@ -659,7 +659,7 @@ elif pagina == "🧩 Planejamento Lego":
 # ==============================================================================
 # PÁGINA 3: HISTÓRICO 325 (TRANSFERÊNCIAS)
 # ==============================================================================
-elif pagina == "🚛 Histórico325":
+elif pagina == "🚛 Transferências":
     st.title("🚛 Visão de Transferências | Histórico325")
     
     if not df_transf.empty:
@@ -744,4 +744,5 @@ elif pagina == "🚛 Histórico325":
             st.warning("A coluna 'ID_CARGA_PCP' não foi encontrada na planilha de Transferências.")
     else:
         st.warning("⚠️ Planilha de Transferências não carregou. O e-mail do robô está como Leitor nela?")
+
 
