@@ -725,7 +725,7 @@ elif pagina == "🚛 Transferência":
                 'DATA_PRODUCAO': 'Data Produção',
                 'LIBERACAO': 'Liberação Orig.',
                 'CD_ORIGEM': 'CD Origem',
-                'DATA_ENTREGA': 'DATA ENTREGA',
+                'DATA_ENTREGA': 'Dt. Entrega Cliente',
                 'MODALIDADE': 'Modalidade',
                 'SKUS': 'Skus',
                 'PECAS': 'Peças',
@@ -824,4 +824,5 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
+
 
