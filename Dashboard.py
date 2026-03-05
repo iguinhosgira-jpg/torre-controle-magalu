@@ -9,22 +9,65 @@ import json
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Torre de Controle | Magalu", page_icon="🛍️", layout="wide", initial_sidebar_state="expanded")
 
-# --- INJEÇÃO DE CSS (Identidade Visual Magazine Luiza) ---
+# --- INJEÇÃO DE CSS (NOVO DESIGN: SOFT UI & BORDAS ARREDONDADAS) ---
 st.markdown("""
 <style>
-    .stApp { background-color: #F4F6F9; color: #333333; }
-    h1, h2, h3 { color: #0086FF !important; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-weight: 700; }
-    div[data-testid="metric-container"] {
-        background-color: #FFFFFF; border: 1px solid #EAEAEA; border-radius: 8px;
-        padding: 15px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); border-left: 5px solid #0086FF;
+    /* Fundo geral mais suave e limpo */
+    .stApp { background-color: #F4F7F6; color: #2C3E50; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    
+    /* Tipografia dos Títulos mais elegante */
+    h1, h2, h3 { color: #2C3E50 !important; font-weight: 800; letter-spacing: -0.5px; }
+    
+    /* Linhas divisórias mais suaves */
+    hr { border-top: 2px solid #EAEDED; border-radius: 2px; }
+    
+    /* Tabelas (DataFrames) com bordas arredondadas e sombra */
+    [data-testid="stDataFrame"] { 
+        border: none !important; 
+        border-radius: 12px !important; 
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05) !important; 
+        overflow: hidden !important; 
     }
-    hr { border-top: 2px solid #EAEAEA; }
-    .stDataFrame { border: 1px solid #EAEAEA; border-radius: 8px; overflow: hidden; }
+    
+    /* Barra Lateral Suave */
+    [data-testid="stSidebar"] {
+        background-color: #FFFFFF;
+        box-shadow: 2px 0 15px rgba(0, 0, 0, 0.03);
+        border-right: none;
+    }
+    
+    /* Menus retráteis (Expanders) redondinhos */
+    .streamlit-expanderHeader {
+        background-color: #FFFFFF !important;
+        border-radius: 10px !important;
+        border: 1px solid #EAEDED !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.02) !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+# --- NOVO COMPONENTE DE KPI (DESIGN ESTILO CARD COM BORDA COLORIDA) ---
+def exibir_kpi(titulo, valor, subtitulo="", cor="#0086FF"):
+    st.markdown(f"""
+    <div style="
+        background-color: #FFFFFF;
+        border-radius: 12px;
+        padding: 16px 20px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04);
+        border-left: 6px solid {cor};
+        margin-bottom: 15px;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(0, 0, 0, 0.08)';" 
+      onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(0, 0, 0, 0.04)';">
+        <p style="margin: 0; font-size: 13px; color: #7F8C8D; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">{titulo}</p>
+        <h2 style="margin: 5px 0; font-size: 32px; color: #2C3E50; font-weight: 800;">{valor}</h2>
+        <p style="margin: 0; font-size: 13px; color: #95A5A6; font-weight: 500;">{subtitulo}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
 
 # --- CONEXÃO INTELIGENTE (LOCAL / NUVEM) ---
 def conectar_google_sheets():
@@ -48,46 +91,38 @@ def carregar_dados():
     try:
         planilha = conectar_google_sheets()
         
-        # ==============================================================================
-        # 1. LENDO A ABA CONSOLIDADO (Apenas os KPIs Principais)
-        # ==============================================================================
+        # 1. ABA CONSOLIDADO
         ws_consolidado = planilha.worksheet("CONSOLIDADO")
         dados_consolidado = ws_consolidado.get_all_values() 
         
         if dados_consolidado and len(dados_consolidado) > 1:
-            df = pd.DataFrame(dados_consolidado[1:], columns=dados_consolidado[0])
-            df = df.loc[:, ~df.columns.duplicated()]
-            df = df.loc[:, df.columns != '']
+            df_raw = pd.DataFrame(dados_consolidado[1:], columns=dados_consolidado[0])
+            df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
+            df_raw = df_raw.loc[:, df_raw.columns != '']
             
-            # Deixa tudo em maiúsculo para evitar erro de digitação do sistema
-            df.columns = df.columns.str.strip().str.upper()
+            df_raw.columns = df_raw.columns.str.strip().str.upper()
             
-            # Mapeamento blindado para a aba CONSOLIDADO
-            mapeamento_cons = {
-                'AGENDA': 'Agenda',
-                'DATA': 'Data',
-                'FORNECEDOR': 'Fornecedor',
+            mapeamento = {
+                'CODAGENDA': 'Agenda',
+                'DTAGENDA': 'Data',
+                'FORNE_PRINC': 'Fornecedor',
                 'LINHA': 'Linhas',
-                'CATEGORIA': 'Categoria',
-                'QTD SKUS': 'Qtd SKUs',
-                'QTD PEÇAS': 'Qtd Peças',
-                'STATUS AGENDA': 'Status',
-                'STATUS': 'Status'
+                'STATUS': 'Status',
+                'PEÇAS REAL': 'Qtd Peças',
+                'QTCOMP': 'Qtd Peças',
+                'COMPITEM': 'SKU',
+                'DESCRICAO': 'Descrição',
+                'CATEGORIA': 'Categoria'
             }
-            df = df.rename(columns=mapeamento_cons)
+            df_raw = df_raw.rename(columns=mapeamento)
             
-            # Garante que colunas de números não quebrem
-            for col in ['Qtd SKUs', 'Qtd Peças']:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-                else:
-                    df[col] = 0
+            if 'Qtd Peças' in df_raw.columns:
+                df_raw['Qtd Peças'] = pd.to_numeric(df_raw['Qtd Peças'], errors='coerce').fillna(0)
+            else:
+                df_raw['Qtd Peças'] = 0
 
-            # Se não vier a coluna Ofensor, criamos para não quebrar a tela
-            if 'É Ofensor?' not in df.columns:
-                df['É Ofensor?'] = 'Não'
+            df_raw['É Ofensor?'] = 'Não' 
 
-            # Tradutor de Status
             def padronizar_status(val):
                 v = str(val).upper().strip()
                 if 'AGENDADO' in v: return 'Agendado'
@@ -98,23 +133,35 @@ def carregar_dados():
                 if 'DESCARGA' in v: return 'Em Descarga'
                 return v.title()
 
-            if 'Status' in df.columns:
-                df['Status'] = df['Status'].apply(padronizar_status)
+            if 'Status' in df_raw.columns:
+                df_raw['Status'] = df_raw['Status'].apply(padronizar_status)
 
-            # Limpeza final de Data e Agenda
-            if 'Data' in df.columns:
-                df['Data'] = pd.to_datetime(df['Data'], errors='coerce', dayfirst=True).dt.normalize()
-            if 'Agenda' in df.columns:
-                df = df[df['Agenda'].astype(str).str.strip() != '']
-                df['Agenda'] = df['Agenda'].astype(str).str.split('.').str[0].str.strip()
-            
-            df['Agenda_Texto'] = df['Agenda']
+            if 'Data' in df_raw.columns:
+                df_raw['Data'] = pd.to_datetime(df_raw['Data'], errors='coerce', dayfirst=True)
+            if 'Agenda' in df_raw.columns:
+                df_raw = df_raw[df_raw['Agenda'].astype(str).str.strip() != '']
+                df_raw['Agenda'] = df_raw['Agenda'].astype(str).str.split('.').str[0].str.strip()
+
+            df_itens = df_raw.copy()
+
+            df = df_raw.groupby(['Data', 'Agenda']).agg({
+                'Fornecedor': 'first',
+                'Status': 'first',
+                'Linhas': lambda x: ', '.join(x.dropna().astype(str).unique()) if 'Linhas' in df_raw.columns else '',
+                'Agenda': 'size',
+                'Qtd Peças': 'sum',
+                'É Ofensor?': 'first'
+            }).rename(columns={'Agenda': 'Qtd SKUs'}).reset_index()
+
+            df['Data'] = pd.to_datetime(df['Data'], errors='coerce').dt.normalize()
+            df['Agenda_Texto'] = df['Agenda'].astype(str).str.strip()
             df['Canal'] = df['Agenda_Texto'].apply(lambda x: 'Fulfillment' if len(x) >= 6 else '1P Fornecedor')
 
             def calcular_minutos(row):
                 canal = row.get('Canal', '')
                 fornecedor = str(row.get('Fornecedor', '')).strip().upper()
-                if canal == 'Fulfillment': return 60.0 
+                if canal == 'Fulfillment':
+                    return 60.0 
                 else:
                     linhas = str(row.get('Linhas', '')).upper().split(',')
                     maior_tempo = 0 
@@ -134,40 +181,7 @@ def carregar_dados():
             
             df['Tempo_APC_Minutos'] = df.apply(calcular_minutos, axis=1)
 
-        # ==============================================================================
-        # 2. ABA ITEM AGENDA (A Mágica do "Inspecionar Cargas")
-        # ==============================================================================
-        try:
-            ws_itens = planilha.worksheet("Item Agenda")
-            dados_itens = ws_itens.get_all_values()
-            if dados_itens and len(dados_itens) > 1:
-                df_itens = pd.DataFrame(dados_itens[1:], columns=dados_itens[0])
-                df_itens = df_itens.loc[:, ~df_itens.columns.duplicated()]
-                df_itens = df_itens.loc[:, df_itens.columns != '']
-                df_itens.columns = df_itens.columns.str.strip().str.upper()
-                
-                # Traduzindo os nomes exclusivos dessa aba
-                mapeamento_itens = {
-                    'CODAGENDA': 'Agenda',
-                    'COMPITEM': 'SKU',
-                    'DESCRICAO': 'Descrição',
-                    'LINHA': 'Linhas',
-                    'CATEGORIA': 'Categoria',
-                    'PEÇAS REAL': 'Qtd Peças',
-                    'QTCOMP': 'Qtd Peças'
-                }
-                
-                df_itens = df_itens.rename(columns=mapeamento_itens)
-                df_itens = df_itens.loc[:, ~df_itens.columns.duplicated()] # Blindagem contra colunas com nomes iguais
-                    
-                if 'Agenda' in df_itens.columns:
-                    df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.split('.').str[0].str.strip()
-        except:
-            pass 
-
-        # ==============================================================================
-        # 3. ABA PLANEJAMENTO
-        # ==============================================================================
+        # 2. ABA PLANEJAMENTO
         try:
             ws_plan = planilha.worksheet("PLANEJAMENTO")
             dados_plan = ws_plan.get_all_values()
@@ -268,12 +282,13 @@ if pagina == "🏠 Painel Operacional":
     total_agendas = len(df_filtrado_op)
     taxa_noshow = (qtd_noshow / total_agendas * 100) if total_agendas > 0 else 0
 
-    col_kpi1.metric("📅 Agendado", qtd_agendado)
-    col_kpi2.metric("🚛 Em Trânsito", qtd_transito)
-    col_kpi3.metric("⏳ Pátio (Aguardando)", qtd_aguardando)
-    col_kpi4.metric("⚙️ Em Descarga", qtd_descarga)
-    col_kpi5.metric("✅ Recebido", qtd_recebido)
-    col_kpi6.metric("❌ No-Show (Geral)", qtd_noshow, f"{taxa_noshow:.1f}% de quebra", delta_color="inverse")
+    # UTILIZANDO OS NOVOS KPIs COM CORES SEMÂNTICAS
+    with col_kpi1: exibir_kpi("📅 Agendado", qtd_agendado, "Total de agendas", "#3498DB")      # Azul
+    with col_kpi2: exibir_kpi("🚛 Em Trânsito", qtd_transito, "A caminho do CD", "#9B59B6")  # Roxo
+    with col_kpi3: exibir_kpi("⏳ Pátio", qtd_aguardando, "Aguardando doca", "#F39C12")         # Laranja
+    with col_kpi4: exibir_kpi("⚙️ Em Descarga", qtd_descarga, "Operação rodando", "#1ABC9C")   # Ciano/Teal
+    with col_kpi5: exibir_kpi("✅ Recebido", qtd_recebido, "Finalizados", "#2ECC71")           # Verde
+    with col_kpi6: exibir_kpi("❌ No-Show", qtd_noshow, f"{taxa_noshow:.1f}% de quebra", "#E74C3C") # Vermelho
 
     st.markdown("---")
 
@@ -311,17 +326,17 @@ if pagina == "🏠 Painel Operacional":
         
         col_1p_1, col_1p_2 = st.columns([2, 1])
         with col_1p_1:
-            fig_1p = px.bar(df_limite_1p, x='Data', y='Agendas_Validas', text='Agendas_Validas', color='Estourou_Limite', color_discrete_map={False: '#0086FF', True: '#FF2A2A'}, labels={'Agendas_Validas': 'Agendas', 'Estourou_Limite': 'Acima do Limite?'})
-            fig_1p.add_hline(y=limite_agendas_1p, line_dash="dot", line_color="#FF2A2A", annotation_text=f"Capacidade: {limite_agendas_1p}")
+            fig_1p = px.bar(df_limite_1p, x='Data', y='Agendas_Validas', text='Agendas_Validas', color='Estourou_Limite', color_discrete_map={False: '#3498DB', True: '#E74C3C'}, labels={'Agendas_Validas': 'Agendas', 'Estourou_Limite': 'Acima do Limite?'})
+            fig_1p.add_hline(y=limite_agendas_1p, line_dash="dot", line_color="#E74C3C", annotation_text=f"Capacidade: {limite_agendas_1p}")
             fig_1p.update_traces(textposition='outside')
-            fig_1p.update_layout(xaxis=dict(tickformat="%d/%m/%Y"), showlegend=False, plot_bgcolor='rgba(0,0,0,0)')
+            fig_1p.update_layout(xaxis=dict(tickformat="%d/%m/%Y"), showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig_1p, use_container_width=True)
             
         with col_1p_2:
             st.subheader("Balanço 1P")
-            st.metric("Dias Acima do Limite", df_limite_1p['Estourou_Limite'].sum(), "Necessita adequação", delta_color="inverse")
-            st.metric("Volume 1P", df_limite_1p['Total_1P'].sum())
-            st.metric("Isentos (Cofres)", df_limite_1p['Qtd_Cofres'].sum(), "Não consomem doca padrão")
+            exibir_kpi("Dias Acima do Limite", df_limite_1p['Estourou_Limite'].sum(), "Necessita adequação", "#E74C3C")
+            exibir_kpi("Volume 1P", df_limite_1p['Total_1P'].sum(), "Total de agendas 1P", "#3498DB")
+            exibir_kpi("Isentos (Cofres)", df_limite_1p['Qtd_Cofres'].sum(), "Não consomem doca padrão", "#95A5A6")
     else: st.info("Nenhuma agenda do canal 1P Fornecedor encontrada.")
 
     st.markdown("---")
@@ -340,15 +355,15 @@ if pagina == "🏠 Painel Operacional":
     if not df_apc.empty:
         st.markdown("### 📊 Visão Acumulada")
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        col_m1.metric("Média de Equipes / Dia", math.ceil(df_apc['Equipes Necessárias'].mean()))
-        col_m2.metric("Dias em Sobrecarga", len(df_apc[df_apc['Gap_Equipes'] > 0]), f"De {len(df_apc)} dias analisados", delta_color="inverse")
-        col_m3.metric(f"Déficit (Horas Extras)", f"{df_apc['Horas_Extras'].sum()} h", f"Custo: {formatar_moeda(df_apc['Custo_HE'].sum())}", delta_color="inverse")
-        col_m4.metric("Agendas Expostas", df_filtrado_op[df_filtrado_op['Data'].isin(df_apc[df_apc['Gap_Equipes'] > 0]['Data'])]['Agenda_Texto'].nunique(), "Cargas com risco de atraso", delta_color="inverse")
+        with col_m1: exibir_kpi("Média Equipes/Dia", math.ceil(df_apc['Equipes Necessárias'].mean()), "Recurso Humano", "#3498DB")
+        with col_m2: exibir_kpi("Dias em Sobrecarga", len(df_apc[df_apc['Gap_Equipes'] > 0]), f"De {len(df_apc)} analisados", "#E74C3C")
+        with col_m3: exibir_kpi("Déficit Projetado", f"{df_apc['Horas_Extras'].sum()} h", f"Custo HE: {formatar_moeda(df_apc['Custo_HE'].sum())}", "#E74C3C")
+        with col_m4: exibir_kpi("Agendas Expostas", df_filtrado_op[df_filtrado_op['Data'].isin(df_apc[df_apc['Gap_Equipes'] > 0]['Data'])]['Agenda_Texto'].nunique(), "Cargas com risco", "#F39C12")
         
-        fig_equipes = px.bar(df_apc, x='Data', y='Equipes Necessárias', text='Equipes Necessárias', color_discrete_sequence=['#0086FF'])
-        fig_equipes.add_hline(y=capacidade_diaria, line_dash="solid", line_color="#FF2A2A", annotation_text=f"Headcount Fixo ({capacidade_diaria})")
+        fig_equipes = px.bar(df_apc, x='Data', y='Equipes Necessárias', text='Equipes Necessárias', color_discrete_sequence=['#3498DB'])
+        fig_equipes.add_hline(y=capacidade_diaria, line_dash="solid", line_color="#E74C3C", annotation_text=f"Headcount Fixo ({capacidade_diaria})")
         fig_equipes.update_traces(textposition='outside')
-        fig_equipes.update_layout(xaxis=dict(tickformat="%d/%m/%Y"), plot_bgcolor='rgba(0,0,0,0)', yaxis_title="Qtd Equipes", title="Necessidade Diária de Mão de Obra")
+        fig_equipes.update_layout(xaxis=dict(tickformat="%d/%m/%Y"), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', yaxis_title="Qtd Equipes", title="Necessidade Diária de Mão de Obra")
         st.plotly_chart(fig_equipes, use_container_width=True)
 
     st.markdown("---")
@@ -364,20 +379,21 @@ if pagina == "🏠 Painel Operacional":
         
         st.markdown(f"### 🎯 Analise Operacional: {dia_selecionado}")
         met_col1, met_col2, met_col3, met_col4 = st.columns(4)
-        met_col1.metric("Equipes Necessárias", dados_apc_dia['Equipes Necessárias'])
-        met_col2.metric("Capacidade Atual", capacidade_diaria)
-        met_col3.metric("🚨 H.E. Projetadas", f"{dados_apc_dia['Horas_Extras']} h", f"Custo: {formatar_moeda(dados_apc_dia['Custo_HE'])}", delta_color="inverse")
-        met_col4.metric("Volume de Peças", f"{df_dia_critico['Qtd Peças'].sum():,.0f}".replace(',', '.'))
+        with met_col1: exibir_kpi("Equipes Necessárias", dados_apc_dia['Equipes Necessárias'], "Demanda do dia", "#3498DB")
+        with met_col2: exibir_kpi("Capacidade Atual", capacidade_diaria, "Headcount Fixo", "#95A5A6")
+        with met_col3: exibir_kpi("🚨 H.E. Projetadas", f"{dados_apc_dia['Horas_Extras']} h", f"Custo: {formatar_moeda(dados_apc_dia['Custo_HE'])}", "#E74C3C")
+        with met_col4: exibir_kpi("Volume de Peças", f"{df_dia_critico['Qtd Peças'].sum():,.0f}".replace(',', '.'), "Físico", "#9B59B6")
         
         col_chart, col_tab = st.columns([1, 2])
         with col_chart:
-            fig_canais = px.pie(df_dia_critico.groupby('Canal')['Tempo_APC_Minutos'].sum().reset_index(), values='Tempo_APC_Minutos', names='Canal', hole=0.4, color_discrete_map={'Fulfillment': '#0086FF', '1P Fornecedor': '#FF8D00'})
+            fig_canais = px.pie(df_dia_critico.groupby('Canal')['Tempo_APC_Minutos'].sum().reset_index(), values='Tempo_APC_Minutos', names='Canal', hole=0.4, color_discrete_map={'Fulfillment': '#3498DB', '1P Fornecedor': '#F39C12'})
+            fig_canais.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig_canais, use_container_width=True)
         with col_tab:
             st.dataframe(df_dia_critico[['Status', 'Canal', 'Linhas', 'Agenda_Texto', 'Fornecedor', 'Qtd Peças', 'Tempo_APC_Minutos']].rename(columns={'Agenda_Texto': 'Agenda', 'Tempo_APC_Minutos': 'APC (Min)'}).sort_values(by='APC (Min)', ascending=False), use_container_width=True, hide_index=True)
 
         st.markdown("### 📦 Inspecionar Carga")
-        agenda_selecionada = st.selectbox("Escolha uma agenda do dia para ver a lista de SKUs embarcados:", df_dia_critico['Agenda_Texto'].unique())
+        agenda_selecionada = st.selectbox("Escolha uma agenda do dia para ver o detalhamento:", df_dia_critico['Agenda_Texto'].unique())
         
         if not df_itens.empty and 'Agenda' in df_itens.columns:
             agenda_limpa = str(agenda_selecionada).split('.')[0].strip()
@@ -386,7 +402,6 @@ if pagina == "🏠 Painel Operacional":
             if not df_produtos_agenda.empty: 
                 colunas_exibir = [c for c in ['SKU', 'Descrição', 'Linhas', 'Categoria'] if c in df_produtos_agenda.columns]
                 
-                # --- SOMANDO E AGRUPANDO AS PEÇAS ---
                 if 'Qtd Peças' in df_produtos_agenda.columns:
                     df_produtos_agenda['Qtd Peças'] = pd.to_numeric(df_produtos_agenda['Qtd Peças'], errors='coerce').fillna(0)
                     resumo_itens = df_produtos_agenda.groupby(colunas_exibir)['Qtd Peças'].sum().reset_index()
@@ -397,22 +412,20 @@ if pagina == "🏠 Painel Operacional":
                 
                 total_skus = len(resumo_itens)
                 
-                # --- OS 3 NOVOS KPIs EXECUTIVOS ---
                 df_fornecedor_temp = df_dia_critico[df_dia_critico['Agenda_Texto'] == agenda_selecionada]
-                fornecedor_nome = df_fornecedor_temp['Fornecedor'].iloc[0] if not df_fornecedor_temp.empty else "N/D"
+                fornecedor_nome = df_fornecedor_temp['Fornecedor'].iloc[0] if not df_fornecedor_temp.empty else "Não Informado"
 
                 st.markdown(f"#### Resumo da Agenda: {agenda_limpa}")
                 kpi_c1, kpi_c2, kpi_c3 = st.columns(3)
-                kpi_c1.metric("📦 Qtd de SKUs", f"{total_skus}", "Itens Distintos")
-                kpi_c2.metric("🔢 Qtd Peças Totais", f"{total_pecas:,.0f}".replace(',', '.'), "Volume Físico")
-                kpi_c3.metric("🏢 Fornecedor Principal", f"{fornecedor_nome[:25]}") 
+                with kpi_c1: exibir_kpi("📦 Qtd de SKUs", f"{total_skus}", "Itens distintos", "#3498DB")
+                with kpi_c2: exibir_kpi("🔢 Qtd Peças Totais", f"{total_pecas:,.0f}".replace(',', '.'), "Volume da carga", "#9B59B6")
+                with kpi_c3: exibir_kpi("🏢 Fornecedor", f"{fornecedor_nome[:22]}", "Origem", "#F39C12")
                 
-                st.markdown("<br>", unsafe_allow_html=True)
                 st.dataframe(resumo_itens, use_container_width=True, hide_index=True)
             else: 
-                st.warning(f"Os itens da agenda {agenda_limpa} não foram encontrados na aba 'Item Agenda'.")
+                st.warning(f"Os itens da agenda {agenda_limpa} não foram encontrados na base.")
         else:
-            st.warning("A aba 'Item Agenda' está vazia ou a coluna de Agenda não foi identificada.")
+            st.warning("Base de Itens indisponível.")
     else: st.success("✅ A operação fluiu sem gargalos no período analisado!")
 
 
@@ -492,10 +505,13 @@ elif pagina == "🧩 Planejamento Lego":
         estouradas = len(df_executivo[df_executivo['VAGAS (Saldo)'] < 0])
         
         col_e1, col_e2, col_e3, col_e4 = st.columns(4)
-        col_e1.metric("Meta Comercial (LEGO)", f"{meta_total:,.0f}".replace(',', '.'))
-        col_e2.metric("Agendado", f"{realizado_total:,.0f}".replace(',', '.'))
-        col_e3.metric("Saldo de Vagas Restantes", f"{saldo_total:,.0f}".replace(',', '.'), "Risco Global" if saldo_total < 0 else "Capacidade Livre", delta_color="normal" if saldo_total >= 0 else "inverse")
-        col_e4.metric("Categorias Estouradas", estouradas, "Acima da Meta", delta_color="inverse")
+        with col_e1: exibir_kpi("Meta (LEGO)", f"{meta_total:,.0f}".replace(',', '.'), "Alvo Comercial", "#3498DB")
+        with col_e2: exibir_kpi("Agendado", f"{realizado_total:,.0f}".replace(',', '.'), "Realidade", "#9B59B6")
+        
+        cor_saldo = "#2ECC71" if saldo_total >= 0 else "#E74C3C"
+        texto_saldo = "Capacidade Livre" if saldo_total >= 0 else "Risco Global"
+        with col_e3: exibir_kpi("Saldo de Vagas", f"{saldo_total:,.0f}".replace(',', '.'), texto_saldo, cor_saldo)
+        with col_e4: exibir_kpi("Categorias Estouradas", estouradas, "Acima da Meta", "#E74C3C")
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("#### 🔍 Fechamento por Categoria")
@@ -503,8 +519,8 @@ elif pagina == "🧩 Planejamento Lego":
         df_executivo_limpo = df_executivo[(df_executivo['LEGO (Meta)'] > 0) | (df_executivo['CARROS (Realizado)'] > 0)]
         
         def cor_vagas(val):
-            if val < 0: return 'background-color: #E74C3C; color: white; font-weight: bold;'
-            elif val > 0: return 'background-color: #A2D9CE; color: #1E8449; font-weight: bold;'
+            if val < 0: return 'background-color: #FDEDEC; color: #E74C3C; font-weight: bold;'
+            elif val > 0: return 'background-color: #EAFAF1; color: #27AE60; font-weight: bold;'
             else: return ''
 
         tabela_formatada = df_executivo_limpo.style.format(
@@ -543,11 +559,11 @@ elif pagina == "🧩 Planejamento Lego":
                             if pd.isna(valor) or valor == 0:
                                 css += 'color: rgba(0,0,0,0); background-color: rgba(0,0,0,0); ' 
                             else:
-                                css += 'background-color: #FFCDD2; color: #900C3F; font-weight: bold; ' 
+                                css += 'background-color: #FDEDEC; color: #C0392B; font-weight: bold; ' 
                             if tipo == 'PLANEJADO':
-                                css += 'border-left: 2px solid #34495E; '
+                                css += 'border-left: 2px solid #EAEDED; '
                             elif tipo == 'REALIZADO':
-                                css += 'border-right: 2px solid #34495E; '
+                                css += 'border-right: 2px solid #EAEDED; '
                             estilos.loc[indice, coluna] = css
                     return estilos
 
