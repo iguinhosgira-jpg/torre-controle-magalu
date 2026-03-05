@@ -113,7 +113,8 @@ def carregar_dados():
 
             # Normaliza dados finais
             df['Data'] = pd.to_datetime(df['Data'], errors='coerce').dt.normalize()
-            df['Agenda_Texto'] = df['Agenda'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+            # Limpeza bruta da numeração da agenda (remove decimais .0)
+            df['Agenda_Texto'] = df['Agenda'].astype(str).str.split('.').str[0].str.strip()
             df['Canal'] = df['Agenda_Texto'].apply(lambda x: 'Fulfillment' if len(x) >= 6 else '1P Fornecedor')
 
             def calcular_minutos(row):
@@ -140,7 +141,7 @@ def carregar_dados():
             
             df['Tempo_APC_Minutos'] = df.apply(calcular_minutos, axis=1)
 
-        # 2. ABA ITEM AGENDA (Itens detalhados) - BLINDADO CONTRA ERRO DE CHAVE
+        # 2. ABA ITEM AGENDA (Itens detalhados) - SUPER BLINDADO
         try:
             ws_itens = planilha.worksheet("Item Agenda")
             dados_itens = ws_itens.get_all_values()
@@ -149,12 +150,28 @@ def carregar_dados():
                 df_itens = df_itens.loc[:, ~df_itens.columns.duplicated()]
                 df_itens = df_itens.loc[:, df_itens.columns != '']
                 
-                df_itens.columns = df_itens.columns.str.strip()
+                # Joga todos os nomes de colunas para MAIÚSCULO para padronizar
+                df_itens.columns = df_itens.columns.str.strip().str.upper()
                 
-                if 'Agenda' not in df_itens.columns:
+                # Caçador de Colunas (Se a coluna se chamar "Nº AGENDA" ele encontra e renomeia)
+                col_agenda = [c for c in df_itens.columns if 'AGENDA' in c]
+                if col_agenda:
+                    df_itens = df_itens.rename(columns={col_agenda[0]: 'Agenda'})
+                else:
                     df_itens['Agenda'] = ''
+
+                # Mapeia outras colunas chaves que podem vir com nomes estranhos
+                mapeamento_itens = {}
+                for c in df_itens.columns:
+                    if 'SKU' in c or 'CODIGO' in c or 'CÓDIGO' in c: mapeamento_itens[c] = 'SKU'
+                    elif 'DESCRI' in c or 'PRODUTO' in c: mapeamento_itens[c] = 'Descrição'
+                    elif 'LINHA' in c: mapeamento_itens[c] = 'Linha'
+                    elif 'CATEGORIA' in c or 'MACRO' in c: mapeamento_itens[c] = 'Categoria'
+                
+                df_itens = df_itens.rename(columns=mapeamento_itens)
                     
-                df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+                # Limpeza agressiva: Quebra o número no ponto e pega só a parte inteira
+                df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.split('.').str[0].str.strip()
         except:
             pass 
 
@@ -372,14 +389,20 @@ if pagina == "🏠 Painel Operacional":
         agenda_selecionada = st.selectbox("Escolha uma agenda do dia para ver a lista de SKUs embarcados:", df_dia_critico['Agenda_Texto'].unique())
         
         if not df_itens.empty and 'Agenda' in df_itens.columns:
-            df_produtos_agenda = df_itens[df_itens['Agenda'] == str(agenda_selecionada)]
+            # Pega só o número limpo da seleção para comparar certinho
+            agenda_limpa = str(agenda_selecionada).split('.')[0].strip()
+            df_produtos_agenda = df_itens[df_itens['Agenda'] == agenda_limpa]
+            
             if not df_produtos_agenda.empty: 
                 colunas_exibir = [c for c in ['SKU', 'Descrição', 'Linha', 'Categoria'] if c in df_produtos_agenda.columns]
-                st.dataframe(df_produtos_agenda.groupby(colunas_exibir).size().reset_index(name='Qtd Itens'), use_container_width=True, hide_index=True)
+                if colunas_exibir:
+                    st.dataframe(df_produtos_agenda.groupby(colunas_exibir).size().reset_index(name='Qtd Itens'), use_container_width=True, hide_index=True)
+                else:
+                    st.dataframe(df_produtos_agenda, use_container_width=True, hide_index=True)
             else: 
-                st.warning("Itens não encontrados na base detalhada.")
+                st.warning(f"Os itens da agenda {agenda_limpa} não foram encontrados na aba 'Item Agenda'.")
         else:
-            st.warning("Base de Itens indisponível ou vazia no Google Sheets.")
+            st.warning("A aba 'Item Agenda' está vazia ou a coluna de Agenda não foi identificada.")
     else: st.success("✅ A operação fluiu sem gargalos no período analisado!")
 
 
@@ -526,9 +549,3 @@ elif pagina == "🧩 Planejamento Lego":
             st.info("Nenhum dado encontrado para o período filtrado.")
     else:
         st.warning("⚠️ Planilha 'PLANEJAMENTO' vazia ou não encontrada no Google Sheets.")
-
-
-
-
-
-
