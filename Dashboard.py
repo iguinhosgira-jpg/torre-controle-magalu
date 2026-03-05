@@ -38,7 +38,7 @@ def conectar_google_sheets():
     client = gspread.authorize(creds)
     return client.open_by_key('1WA5GjT1f-jpQ4Sw_OfvXBERyz5MehfH7uaFrIfUMrtw')
 
-# --- EXTRAÇÃO DOS DADOS DO GOOGLE SHEETS ---
+# --- EXTRAÇÃO DOS DADOS DO GOOGLE SHEETS (BASEADO NO SEU CSV REAL) ---
 @st.cache_data(ttl=300) # Atualiza a cada 5 minutos
 def carregar_dados():
     df = pd.DataFrame()
@@ -49,37 +49,39 @@ def carregar_dados():
         planilha = conectar_google_sheets()
         
         # ==============================================================================
-        # 1. LENDO A ABA CONSOLIDADO (Apenas Leitura e Tradução)
+        # 1. LENDO A ABA CONSOLIDADO (A ÚNICA QUE IMPORTA AGORA)
         # ==============================================================================
         ws_consolidado = planilha.worksheet("CONSOLIDADO")
         dados_consolidado = ws_consolidado.get_all_values() 
         
         if dados_consolidado and len(dados_consolidado) > 1:
-            df = pd.DataFrame(dados_consolidado[1:], columns=dados_consolidado[0])
-            df = df.loc[:, ~df.columns.duplicated()]
-            df = df.loc[:, df.columns != '']
-            df.columns = df.columns.str.strip()
+            df_raw = pd.DataFrame(dados_consolidado[1:], columns=dados_consolidado[0])
+            df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
+            df_raw = df_raw.loc[:, df_raw.columns != '']
             
-            # Ajusta os nomes das colunas exatamente como estão no seu CSV
-            mapeamento_cons = {
-                'STATUS AGENDA': 'Status',
-                'Status_Traduzido': 'Status',
-                'Linha': 'Linhas'
+            df_raw.columns = df_raw.columns.str.strip().str.upper()
+            
+            mapeamento = {
+                'CODAGENDA': 'Agenda',
+                'DTAGENDA': 'Data',
+                'FORNE_PRINC': 'Fornecedor',
+                'LINHA': 'Linhas',
+                'STATUS': 'Status',
+                'PEÇAS REAL': 'Qtd Peças',
+                'QTCOMP': 'Qtd Peças',
+                'COMPITEM': 'SKU',
+                'DESCRICAO': 'Descrição',
+                'CATEGORIA': 'Categoria'
             }
-            df = df.rename(columns=mapeamento_cons)
+            df_raw = df_raw.rename(columns=mapeamento)
             
-            # Garante que as numéricas não quebrem
-            for col in ['Qtd SKUs', 'Qtd Peças']:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-                else:
-                    df[col] = 0
+            if 'Qtd Peças' in df_raw.columns:
+                df_raw['Qtd Peças'] = pd.to_numeric(df_raw['Qtd Peças'], errors='coerce').fillna(0)
+            else:
+                df_raw['Qtd Peças'] = 0
 
-            # Como o seu arquivo não tem "É Ofensor?", a gente cria para o filtro não quebrar
-            if 'É Ofensor?' not in df.columns:
-                df['É Ofensor?'] = 'Não'
+            df_raw['É Ofensor?'] = 'Não' 
 
-            # Tradutor de Status
             def padronizar_status(val):
                 v = str(val).upper().strip()
                 if 'AGENDADO' in v: return 'Agendado'
@@ -90,21 +92,37 @@ def carregar_dados():
                 if 'DESCARGA' in v: return 'Em Descarga'
                 return v.title()
 
-            if 'Status' in df.columns:
-                df['Status'] = df['Status'].apply(padronizar_status)
+            if 'Status' in df_raw.columns:
+                df_raw['Status'] = df_raw['Status'].apply(padronizar_status)
 
-            # Limpeza
-            df['Agenda'] = df['Agenda'].astype(str).str.split('.').str[0].str.strip()
-            df = df[df['Agenda'] != '']
-            df['Data'] = pd.to_datetime(df['Data'], errors='coerce', dayfirst=True).dt.normalize()
-            
-            df['Agenda_Texto'] = df['Agenda']
+            if 'Data' in df_raw.columns:
+                df_raw['Data'] = pd.to_datetime(df_raw['Data'], errors='coerce', dayfirst=True)
+            if 'Agenda' in df_raw.columns:
+                df_raw = df_raw[df_raw['Agenda'].astype(str).str.strip() != '']
+                df_raw['Agenda'] = df_raw['Agenda'].astype(str).str.split('.').str[0].str.strip()
+
+            # Salva base detalhada para os itens
+            df_itens = df_raw.copy()
+
+            # Agrupa a operação para gerar as métricas diárias
+            df = df_raw.groupby(['Data', 'Agenda']).agg({
+                'Fornecedor': 'first',
+                'Status': 'first',
+                'Linhas': lambda x: ', '.join(x.dropna().astype(str).unique()) if 'Linhas' in df_raw.columns else '',
+                'Agenda': 'size',
+                'Qtd Peças': 'sum',
+                'É Ofensor?': 'first'
+            }).rename(columns={'Agenda': 'Qtd SKUs'}).reset_index()
+
+            df['Data'] = pd.to_datetime(df['Data'], errors='coerce').dt.normalize()
+            df['Agenda_Texto'] = df['Agenda'].astype(str).str.strip()
             df['Canal'] = df['Agenda_Texto'].apply(lambda x: 'Fulfillment' if len(x) >= 6 else '1P Fornecedor')
 
             def calcular_minutos(row):
                 canal = row.get('Canal', '')
                 fornecedor = str(row.get('Fornecedor', '')).strip().upper()
-                if canal == 'Fulfillment': return 60.0 
+                if canal == 'Fulfillment':
+                    return 60.0 
                 else:
                     linhas = str(row.get('Linhas', '')).upper().split(',')
                     maior_tempo = 0 
@@ -125,37 +143,7 @@ def carregar_dados():
             df['Tempo_APC_Minutos'] = df.apply(calcular_minutos, axis=1)
 
         # ==============================================================================
-        # 2. ABA ITEM AGENDA (A Mágica do "Inspecionar Cargas")
-        # ==============================================================================
-        try:
-            ws_itens = planilha.worksheet("Item Agenda")
-            dados_itens = ws_itens.get_all_values()
-            if dados_itens and len(dados_itens) > 1:
-                df_itens = pd.DataFrame(dados_itens[1:], columns=dados_itens[0])
-                df_itens = df_itens.loc[:, ~df_itens.columns.duplicated()]
-                df_itens = df_itens.loc[:, df_itens.columns != '']
-                df_itens.columns = df_itens.columns.str.strip().str.upper()
-                
-                # Traduzindo exatamente os nomes do seu arquivo do sistema
-                mapeamento_itens = {
-                    'CODAGENDA': 'Agenda',
-                    'COMPITEM': 'SKU',
-                    'DESCRICAO': 'Descrição',
-                    'LINHA': 'Linha',
-                    'CATEGORIA': 'Categoria',
-                    'PEÇAS REAL': 'Qtd Peças'
-                }
-                
-                df_itens = df_itens.rename(columns=mapeamento_itens)
-                df_itens = df_itens.loc[:, ~df_itens.columns.duplicated()] # A faca para evitar o ValueError!
-                    
-                if 'Agenda' in df_itens.columns:
-                    df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.split('.').str[0].str.strip()
-        except:
-            pass 
-
-        # ==============================================================================
-        # 3. ABA PLANEJAMENTO
+        # 2. ABA PLANEJAMENTO
         # ==============================================================================
         try:
             ws_plan = planilha.worksheet("PLANEJAMENTO")
@@ -373,20 +361,36 @@ if pagina == "🏠 Painel Operacional":
             df_produtos_agenda = df_itens[df_itens['Agenda'] == agenda_limpa].copy()
             
             if not df_produtos_agenda.empty: 
-                colunas_exibir = [c for c in ['SKU', 'Descrição', 'Linha', 'Categoria'] if c in df_produtos_agenda.columns]
+                colunas_exibir = [c for c in ['SKU', 'Descrição', 'Linhas', 'Categoria'] if c in df_produtos_agenda.columns]
                 
-                # Como agora a aba Item Agenda tem as Peças Reais, nós podemos SOMAR as peças em vez de só contar as linhas!
                 if 'Qtd Peças' in df_produtos_agenda.columns:
                     df_produtos_agenda['Qtd Peças'] = pd.to_numeric(df_produtos_agenda['Qtd Peças'], errors='coerce').fillna(0)
                     resumo_itens = df_produtos_agenda.groupby(colunas_exibir)['Qtd Peças'].sum().reset_index()
+                    total_pecas = resumo_itens['Qtd Peças'].sum()
                 else:
                     resumo_itens = df_produtos_agenda.groupby(colunas_exibir).size().reset_index(name='Qtd Itens')
+                    total_pecas = resumo_itens['Qtd Itens'].sum()
                 
+                total_skus = len(resumo_itens)
+                
+                # --- NOVOS KPIs DO INSPECIONAR CARGA ---
+                st.markdown(f"#### Resumo da Agenda: {agenda_limpa}")
+                
+                # Resgatando o nome do fornecedor do Dataframe daquele dia
+                df_fornecedor_temp = df_dia_critico[df_dia_critico['Agenda_Texto'] == agenda_selecionada]
+                fornecedor_nome = df_fornecedor_temp['Fornecedor'].iloc[0] if not df_fornecedor_temp.empty else "N/D"
+
+                kpi_c1, kpi_c2, kpi_c3 = st.columns(3)
+                kpi_c1.metric("📦 Qtd de SKUs", f"{total_skus}", "Itens Distintos")
+                kpi_c2.metric("🔢 Qtd Peças Totais", f"{total_pecas:,.0f}".replace(',', '.'), "Volume Físico")
+                kpi_c3.metric("🏢 Fornecedor Principal", f"{fornecedor_nome[:20]}") # Exibe os 20 primeiros caracteres para não quebrar layout
+                
+                st.markdown("<br>", unsafe_allow_html=True)
                 st.dataframe(resumo_itens, use_container_width=True, hide_index=True)
             else: 
-                st.warning(f"Os itens da agenda {agenda_limpa} não foram encontrados na aba 'Item Agenda'.")
+                st.warning(f"Os itens da agenda {agenda_limpa} não foram encontrados na base.")
         else:
-            st.warning("A aba 'Item Agenda' está vazia ou a coluna de Agenda não foi identificada.")
+            st.warning("Base de Itens indisponível.")
     else: st.success("✅ A operação fluiu sem gargalos no período analisado!")
 
 
