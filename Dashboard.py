@@ -38,7 +38,7 @@ def conectar_google_sheets():
     client = gspread.authorize(creds)
     return client.open_by_key('1WA5GjT1f-jpQ4Sw_OfvXBERyz5MehfH7uaFrIfUMrtw')
 
-# --- EXTRAÇÃO DOS DADOS DO GOOGLE SHEETS (BLINDADO) ---
+# --- EXTRAÇÃO DOS DADOS DO GOOGLE SHEETS ---
 @st.cache_data(ttl=300) # Atualiza a cada 5 minutos
 def carregar_dados():
     df = pd.DataFrame()
@@ -48,41 +48,38 @@ def carregar_dados():
     try:
         planilha = conectar_google_sheets()
         
-        # 1. ABA CONSOLIDADO (Agendas)
+        # ==============================================================================
+        # 1. LENDO A ABA CONSOLIDADO (Apenas Leitura e Tradução)
+        # ==============================================================================
         ws_consolidado = planilha.worksheet("CONSOLIDADO")
         dados_consolidado = ws_consolidado.get_all_values() 
         
         if dados_consolidado and len(dados_consolidado) > 1:
-            df_raw = pd.DataFrame(dados_consolidado[1:], columns=dados_consolidado[0])
-            df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
-            df_raw = df_raw.loc[:, df_raw.columns != '']
+            df = pd.DataFrame(dados_consolidado[1:], columns=dados_consolidado[0])
+            df = df.loc[:, ~df.columns.duplicated()]
+            df = df.loc[:, df.columns != '']
+            df.columns = df.columns.str.strip()
             
-            df_raw.columns = df_raw.columns.str.strip()
-            
-            # TRADUTOR DE COLUNAS
-            mapeamento = {
+            # Ajusta os nomes das colunas exatamente como estão no seu CSV
+            mapeamento_cons = {
                 'STATUS AGENDA': 'Status',
-                'Status Agenda': 'Status',
                 'Status_Traduzido': 'Status',
-                'Status Carga': 'Status',
-                'Status da Carga': 'Status',
-                'Ofensor': 'É Ofensor?',
-                'É Ofensor': 'É Ofensor?',
                 'Linha': 'Linhas'
             }
-            df_raw = df_raw.rename(columns=mapeamento)
+            df = df.rename(columns=mapeamento_cons)
             
-            # Garante colunas obrigatórias
-            for col in ['Status', 'É Ofensor?', 'Linhas', 'Fornecedor', 'Data', 'Agenda']:
-                if col not in df_raw.columns:
-                    df_raw[col] = ''
+            # Garante que as numéricas não quebrem
             for col in ['Qtd SKUs', 'Qtd Peças']:
-                if col not in df_raw.columns:
-                    df_raw[col] = 0
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
                 else:
-                    df_raw[col] = pd.to_numeric(df_raw[col], errors='coerce').fillna(0)
+                    df[col] = 0
 
-            # --- TRADUTOR UNIVERSAL DE STATUS (MÁGICA DOS KPIs) ---
+            # Como o seu arquivo não tem "É Ofensor?", a gente cria para o filtro não quebrar
+            if 'É Ofensor?' not in df.columns:
+                df['É Ofensor?'] = 'Não'
+
+            # Tradutor de Status
             def padronizar_status(val):
                 v = str(val).upper().strip()
                 if 'AGENDADO' in v: return 'Agendado'
@@ -93,34 +90,21 @@ def carregar_dados():
                 if 'DESCARGA' in v: return 'Em Descarga'
                 return v.title()
 
-            df_raw['Status'] = df_raw['Status'].apply(padronizar_status)
-            df_raw['É Ofensor?'] = df_raw['É Ofensor?'].astype(str).str.strip()
-            df_raw['Fornecedor'] = df_raw['Fornecedor'].astype(str).str.strip()
-            df_raw['Data'] = pd.to_datetime(df_raw['Data'], errors='coerce', dayfirst=True)
+            if 'Status' in df.columns:
+                df['Status'] = df['Status'].apply(padronizar_status)
 
-            # Remove linhas sem Agenda
-            df_raw = df_raw[df_raw['Agenda'].astype(str).str.strip() != '']
-
-            # Agrupa para não contar a mesma agenda duas vezes
-            df = df_raw.groupby(['Data', 'Agenda']).agg({
-                'Fornecedor': 'first',
-                'Status': 'first',
-                'Linhas': lambda x: ', '.join(x.dropna().astype(str).unique()),
-                'Qtd SKUs': 'sum',
-                'Qtd Peças': 'sum',
-                'É Ofensor?': 'first'
-            }).reset_index()
-
-            # Normaliza dados finais
-            df['Data'] = pd.to_datetime(df['Data'], errors='coerce').dt.normalize()
-            df['Agenda_Texto'] = df['Agenda'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+            # Limpeza
+            df['Agenda'] = df['Agenda'].astype(str).str.split('.').str[0].str.strip()
+            df = df[df['Agenda'] != '']
+            df['Data'] = pd.to_datetime(df['Data'], errors='coerce', dayfirst=True).dt.normalize()
+            
+            df['Agenda_Texto'] = df['Agenda']
             df['Canal'] = df['Agenda_Texto'].apply(lambda x: 'Fulfillment' if len(x) >= 6 else '1P Fornecedor')
 
             def calcular_minutos(row):
                 canal = row.get('Canal', '')
                 fornecedor = str(row.get('Fornecedor', '')).strip().upper()
-                if canal == 'Fulfillment':
-                    return 60.0 
+                if canal == 'Fulfillment': return 60.0 
                 else:
                     linhas = str(row.get('Linhas', '')).upper().split(',')
                     maior_tempo = 0 
@@ -140,7 +124,9 @@ def carregar_dados():
             
             df['Tempo_APC_Minutos'] = df.apply(calcular_minutos, axis=1)
 
-        # 2. ABA ITEM AGENDA (Itens detalhados) - SUPER BLINDADO
+        # ==============================================================================
+        # 2. ABA ITEM AGENDA (A Mágica do "Inspecionar Cargas")
+        # ==============================================================================
         try:
             ws_itens = planilha.worksheet("Item Agenda")
             dados_itens = ws_itens.get_all_values()
@@ -148,47 +134,29 @@ def carregar_dados():
                 df_itens = pd.DataFrame(dados_itens[1:], columns=dados_itens[0])
                 df_itens = df_itens.loc[:, ~df_itens.columns.duplicated()]
                 df_itens = df_itens.loc[:, df_itens.columns != '']
-                
-                # Joga todos os nomes de colunas para MAIÚSCULO para padronizar
                 df_itens.columns = df_itens.columns.str.strip().str.upper()
                 
-                # Caçador de Colunas (Se a coluna se chamar "Nº AGENDA" ele encontra e renomeia)
-                col_agenda = [c for c in df_itens.columns if 'AGENDA' in c]
-                if col_agenda:
-                    df_itens = df_itens.rename(columns={col_agenda[0]: 'Agenda'})
-                else:
-                    df_itens['Agenda'] = ''
-
-                # Mapeia outras colunas chaves (Com regra anti-duplicidade!)
-                mapeamento_itens = {}
-                alvos_usados = set()
-                
-                for c in df_itens.columns:
-                    if c == 'Agenda': continue
-                    if ('SKU' in c or 'CODIGO' in c or 'CÓDIGO' in c) and 'SKU' not in alvos_usados: 
-                        mapeamento_itens[c] = 'SKU'
-                        alvos_usados.add('SKU')
-                    elif ('DESCRI' in c or 'PRODUTO' in c) and 'Descrição' not in alvos_usados: 
-                        mapeamento_itens[c] = 'Descrição'
-                        alvos_usados.add('Descrição')
-                    elif ('LINHA' in c) and 'Linha' not in alvos_usados: 
-                        mapeamento_itens[c] = 'Linha'
-                        alvos_usados.add('Linha')
-                    elif ('CATEGORIA' in c or 'MACRO' in c) and 'Categoria' not in alvos_usados: 
-                        mapeamento_itens[c] = 'Categoria'
-                        alvos_usados.add('Categoria')
+                # Traduzindo exatamente os nomes do seu arquivo do sistema
+                mapeamento_itens = {
+                    'CODAGENDA': 'Agenda',
+                    'COMPITEM': 'SKU',
+                    'DESCRICAO': 'Descrição',
+                    'LINHA': 'Linha',
+                    'CATEGORIA': 'Categoria',
+                    'PEÇAS REAL': 'Qtd Peças'
+                }
                 
                 df_itens = df_itens.rename(columns=mapeamento_itens)
-                
-                # A FACA AQUI: Remove colunas com nomes idênticos após o renomeio!
-                df_itens = df_itens.loc[:, ~df_itens.columns.duplicated()]
+                df_itens = df_itens.loc[:, ~df_itens.columns.duplicated()] # A faca para evitar o ValueError!
                     
-                # Limpeza agressiva: Quebra o número no ponto e pega só a parte inteira
-                df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.split('.').str[0].str.strip()
+                if 'Agenda' in df_itens.columns:
+                    df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.split('.').str[0].str.strip()
         except:
             pass 
 
+        # ==============================================================================
         # 3. ABA PLANEJAMENTO
+        # ==============================================================================
         try:
             ws_plan = planilha.worksheet("PLANEJAMENTO")
             dados_plan = ws_plan.get_all_values()
@@ -266,13 +234,12 @@ if pagina == "🏠 Painel Operacional":
     st.sidebar.markdown("---")
     canal_selecionado = st.sidebar.multiselect("🏢 Canal de Entrada", options=df['Canal'].unique(), default=df['Canal'].unique())
     status_operacao = st.sidebar.multiselect("🚦 Status da Carga", options=df['Status'].unique(), default=df['Status'].unique())
-    status_ofensor = st.sidebar.multiselect("⚠️ Risco de Planejamento", options=df['É Ofensor?'].unique(), default=df['É Ofensor?'].unique())
-
-    df_filtrado_op = df_filtrado[
-        (df_filtrado['É Ofensor?'].isin(status_ofensor)) & 
-        (df_filtrado['Canal'].isin(canal_selecionado)) & 
-        (df_filtrado['Status'].isin(status_operacao))
-    ]
+    
+    if 'É Ofensor?' in df.columns:
+        status_ofensor = st.sidebar.multiselect("⚠️ Risco de Planejamento", options=df['É Ofensor?'].unique(), default=df['É Ofensor?'].unique())
+        df_filtrado_op = df_filtrado[(df_filtrado['É Ofensor?'].isin(status_ofensor)) & (df_filtrado['Canal'].isin(canal_selecionado)) & (df_filtrado['Status'].isin(status_operacao))]
+    else:
+        df_filtrado_op = df_filtrado[(df_filtrado['Canal'].isin(canal_selecionado)) & (df_filtrado['Status'].isin(status_operacao))]
 
     st.title("📦 Torre de Controle Inbound | CD2900")
     st.markdown(f"**Visão Executiva:** {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
@@ -403,14 +370,19 @@ if pagina == "🏠 Painel Operacional":
         
         if not df_itens.empty and 'Agenda' in df_itens.columns:
             agenda_limpa = str(agenda_selecionada).split('.')[0].strip()
-            df_produtos_agenda = df_itens[df_itens['Agenda'] == agenda_limpa]
+            df_produtos_agenda = df_itens[df_itens['Agenda'] == agenda_limpa].copy()
             
             if not df_produtos_agenda.empty: 
                 colunas_exibir = [c for c in ['SKU', 'Descrição', 'Linha', 'Categoria'] if c in df_produtos_agenda.columns]
-                if colunas_exibir:
-                    st.dataframe(df_produtos_agenda.groupby(colunas_exibir).size().reset_index(name='Qtd Itens'), use_container_width=True, hide_index=True)
+                
+                # Como agora a aba Item Agenda tem as Peças Reais, nós podemos SOMAR as peças em vez de só contar as linhas!
+                if 'Qtd Peças' in df_produtos_agenda.columns:
+                    df_produtos_agenda['Qtd Peças'] = pd.to_numeric(df_produtos_agenda['Qtd Peças'], errors='coerce').fillna(0)
+                    resumo_itens = df_produtos_agenda.groupby(colunas_exibir)['Qtd Peças'].sum().reset_index()
                 else:
-                    st.dataframe(df_produtos_agenda, use_container_width=True, hide_index=True)
+                    resumo_itens = df_produtos_agenda.groupby(colunas_exibir).size().reset_index(name='Qtd Itens')
+                
+                st.dataframe(resumo_itens, use_container_width=True, hide_index=True)
             else: 
                 st.warning(f"Os itens da agenda {agenda_limpa} não foram encontrados na aba 'Item Agenda'.")
         else:
