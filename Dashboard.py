@@ -9,7 +9,7 @@ import json
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Torre de Controle | Magalu", page_icon="🛍️", layout="wide", initial_sidebar_state="expanded")
 
-# --- INJEÇÃO DE CSS (NOVO DESIGN: SOFT UI & BORDAS ARREDONDADAS) ---
+# --- INJEÇÃO DE CSS (DESIGN: SOFT UI & BORDAS ARREDONDADAS) ---
 st.markdown("""
 <style>
     .stApp { background-color: #F4F7F6; color: #2C3E50; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
@@ -38,7 +38,7 @@ st.markdown("""
 def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- NOVO COMPONENTE DE KPI ---
+# --- COMPONENTE DE KPI ---
 def exibir_kpi(titulo, valor, subtitulo="", cor="#0086FF"):
     st.markdown(f"""
     <div style="
@@ -53,8 +53,8 @@ def exibir_kpi(titulo, valor, subtitulo="", cor="#0086FF"):
     </div>
     """, unsafe_allow_html=True)
 
-# --- CONEXÃO INTELIGENTE ---
-def conectar_google_sheets():
+# --- CONEXÃO INTELIGENTE COM O GOOGLE (AGORA RETORNA O CLIENTE GERAL) ---
+def conectar_google():
     try:
         cred_dict = json.loads(st.secrets["google_json"])
         creds = Credentials.from_service_account_info(cred_dict, scopes=["https://www.googleapis.com/auth/spreadsheets"])
@@ -62,32 +62,33 @@ def conectar_google_sheets():
         caminho_local = 'C:/Users/ign_oliveira/Documents/Analises Agendas/credential_key.json'
         creds = Credentials.from_service_account_file(caminho_local, scopes=["https://www.googleapis.com/auth/spreadsheets"])
     
-    client = gspread.authorize(creds)
-    return client.open_by_key('1WA5GjT1f-jpQ4Sw_OfvXBERyz5MehfH7uaFrIfUMrtw')
+    return gspread.authorize(creds)
 
-# --- EXTRAÇÃO DE DADOS (AGORA 100% BLINDADA CONTRA ERRO DE COLUNAS) ---
+# --- EXTRAÇÃO DE DADOS (MULTIPLAS PLANILHAS) ---
 @st.cache_data(ttl=300)
 def carregar_dados():
     df = pd.DataFrame()
     df_itens = pd.DataFrame()
     df_plan = pd.DataFrame()
+    df_transf = pd.DataFrame()
     
     try:
-        planilha = conectar_google_sheets()
+        cliente_google = conectar_google()
         
         # ==============================================================================
-        # 1. ABA CONSOLIDADO (Caçador de Colunas Ativado)
+        # PLANILHA 1: OPERACIONAL E PLANEJAMENTO
         # ==============================================================================
-        ws_consolidado = planilha.worksheet("CONSOLIDADO")
+        planilha_principal = cliente_google.open_by_key('1WA5GjT1f-jpQ4Sw_OfvXBERyz5MehfH7uaFrIfUMrtw')
+        
+        # 1. ABA CONSOLIDADO
+        ws_consolidado = planilha_principal.worksheet("CONSOLIDADO")
         dados_consolidado = ws_consolidado.get_all_values() 
-        
         if dados_consolidado and len(dados_consolidado) > 1:
             df = pd.DataFrame(dados_consolidado[1:], columns=dados_consolidado[0])
             df = df.loc[:, ~df.columns.duplicated()]
             df = df.loc[:, df.columns != '']
             df.columns = df.columns.str.strip().str.upper()
             
-            # Caçador Inteligente: Procura a palavra chave e renomeia sem duplicar
             map_cons = {}
             alvos_cons = set()
             for c in df.columns:
@@ -103,7 +104,6 @@ def carregar_dados():
             df = df.rename(columns=map_cons)
             df = df.loc[:, ~df.columns.duplicated()]
             
-            # GARANTIA DE VIDA: Se a coluna sumir do arquivo, o código cria ela vazia para não dar o erro "KeyError"
             for col in ['Agenda', 'Data', 'Fornecedor', 'Linhas', 'Categoria', 'Status']:
                 if col not in df.columns: df[col] = ''
             for col in ['Qtd SKUs', 'Qtd Peças']:
@@ -111,7 +111,6 @@ def carregar_dados():
                 else: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             if 'É Ofensor?' not in df.columns: df['É Ofensor?'] = 'Não'
 
-            # Tratamentos Finais
             def padronizar_status(val):
                 v = str(val).upper().strip()
                 if 'AGENDADO' in v: return 'Agendado'
@@ -153,11 +152,9 @@ def carregar_dados():
             
             df['Tempo_APC_Minutos'] = df.apply(calcular_minutos, axis=1)
 
-        # ==============================================================================
-        # 2. ABA ITEM AGENDA (Caçador de Colunas Ativado)
-        # ==============================================================================
+        # 2. ABA ITEM AGENDA
         try:
-            ws_itens = planilha.worksheet("Item Agenda")
+            ws_itens = planilha_principal.worksheet("Item Agenda")
             dados_itens = ws_itens.get_all_values()
             if dados_itens and len(dados_itens) > 1:
                 df_itens = pd.DataFrame(dados_itens[1:], columns=dados_itens[0])
@@ -177,32 +174,21 @@ def carregar_dados():
                 
                 df_itens = df_itens.rename(columns=map_itens)
                 df_itens = df_itens.loc[:, ~df_itens.columns.duplicated()]
-                
-                if 'Agenda' in df_itens.columns:
-                    df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.split('.').str[0].str.strip()
-        except:
-            pass 
+                if 'Agenda' in df_itens.columns: df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.split('.').str[0].str.strip()
+        except: pass 
 
-        # ==============================================================================
         # 3. ABA PLANEJAMENTO
-        # ==============================================================================
         try:
-            ws_plan = planilha.worksheet("PLANEJAMENTO")
+            ws_plan = planilha_principal.worksheet("PLANEJAMENTO")
             dados_plan = ws_plan.get_all_values()
-            
             if dados_plan and len(dados_plan) > 1:
                 df_plan = pd.DataFrame(dados_plan[1:], columns=dados_plan[0])
                 df_plan = df_plan.loc[:, ~df_plan.columns.duplicated()]
                 df_plan = df_plan.loc[:, df_plan.columns != '']
-                
                 df_plan.columns = df_plan.columns.str.strip().str.lower()
-                if 'data' in df_plan.columns:
-                    df_plan['data'] = pd.to_datetime(df_plan['data'], format='%d/%m/%Y', errors='coerce').dt.normalize()
-                if 'quantidade_planejado' in df_plan.columns:
-                    df_plan['quantidade_planejado'] = pd.to_numeric(df_plan['quantidade_planejado'], errors='coerce').fillna(0)
-                if 'quantidade_real' in df_plan.columns:
-                    df_plan['quantidade_real'] = pd.to_numeric(df_plan['quantidade_real'], errors='coerce').fillna(0)
-                
+                if 'data' in df_plan.columns: df_plan['data'] = pd.to_datetime(df_plan['data'], format='%d/%m/%Y', errors='coerce').dt.normalize()
+                if 'quantidade_planejado' in df_plan.columns: df_plan['quantidade_planejado'] = pd.to_numeric(df_plan['quantidade_planejado'], errors='coerce').fillna(0)
+                if 'quantidade_real' in df_plan.columns: df_plan['quantidade_real'] = pd.to_numeric(df_plan['quantidade_real'], errors='coerce').fillna(0)
                 if 'categoria' in df_plan.columns:
                     def traduzir_categoria(cat):
                         c = str(cat).upper().strip()
@@ -216,17 +202,43 @@ def carregar_dados():
                         if 'MADEIRA' in c or 'FRACIONADO' in c: return 'MADEIRA'
                         if 'PNEU' in c: return 'PNEUS'
                         return c 
-                        
                     df_plan['categoria'] = df_plan['categoria'].apply(traduzir_categoria)
-        except:
-            pass 
-            
-    except Exception as e: 
-        st.error(f"🚨 Erro crítico ao conectar com o Google Sheets: {e}")
-        
-    return df, df_itens, df_plan
+        except: pass 
 
-df, df_itens, df_plan = carregar_dados()
+        # ==============================================================================
+        # PLANILHA 2: HISTÓRICO DE TRANSFERÊNCIAS 325 (NOVA)
+        # ==============================================================================
+        try:
+            planilha_transf = cliente_google.open_by_key('1PMgqjZr2nieniRShicaPyxAe6J6j7I04FFE5aNWnm_s')
+            ws_transf = planilha_transf.get_worksheet(0) # Puxa a primeira aba
+            dados_transf = ws_transf.get_all_values()
+            
+            if dados_transf and len(dados_transf) > 1:
+                df_transf = pd.DataFrame(dados_transf[1:], columns=dados_transf[0])
+                df_transf = df_transf.loc[:, ~df_transf.columns.duplicated()]
+                df_transf = df_transf.loc[:, df_transf.columns != '']
+                df_transf.columns = df_transf.columns.str.strip().str.upper()
+                
+                # Tratamento de Numéricos
+                if 'QTDE' in df_transf.columns:
+                    df_transf['QTDE'] = pd.to_numeric(df_transf['QTDE'], errors='coerce').fillna(0)
+                
+                # Tratamento Inteligente de Data (Tenta DATA REF, senão DATA SEPARACAO)
+                if 'DATA REF' in df_transf.columns:
+                    df_transf['DATA_FILTRO'] = pd.to_datetime(df_transf['DATA REF'], format='%d/%m/%Y', errors='coerce').dt.normalize()
+                elif 'DATA SEPARACAO' in df_transf.columns:
+                    df_transf['DATA_FILTRO'] = pd.to_datetime(df_transf['DATA SEPARACAO'].str.split(' ').str[0], format='%d/%m/%Y', errors='coerce').dt.normalize()
+                else:
+                    df_transf['DATA_FILTRO'] = pd.NaT
+        except Exception as e:
+            pass # Se a planilha não for achada, o painel continua rodando as outras abas
+
+    except Exception as e: 
+        st.error(f"🚨 Erro crítico de conexão com o Banco de Dados do Google: {e}")
+        
+    return df, df_itens, df_plan, df_transf
+
+df, df_itens, df_plan, df_transf = carregar_dados()
 
 if df.empty:
     st.warning("⏳ Aguardando dados na aba 'CONSOLIDADO' do Google Sheets para renderizar o Dashboard.")
@@ -237,10 +249,11 @@ st.sidebar.image("https://magalog.com.br/opengraph-image.jpg?fdd536e7d35ec9da", 
 st.sidebar.markdown("<br>", unsafe_allow_html=True)
 
 st.sidebar.header("📍 Menu de Navegação")
-pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "🧩 Planejamento Lego"])
+# --- ADICIONADA A NOVA PÁGINA AQUI ---
+pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "🧩 Planejamento Lego", "🚛 Histórico325"])
 st.sidebar.markdown("---")
 
-st.sidebar.header("📅 Período de Análise")
+st.sidebar.header("📅 Período de Análise (Geral)")
 data_min, data_max = df['Data'].min(), df['Data'].max()
 datas_selecionadas = st.sidebar.date_input("Selecione o Início e o Fim:", value=(data_min, data_max), min_value=data_min, max_value=data_max, format="DD/MM/YYYY")
 
@@ -578,3 +591,80 @@ elif pagina == "🧩 Planejamento Lego":
             st.info("Nenhum dado encontrado para o período filtrado.")
     else:
         st.warning("⚠️ Planilha 'PLANEJAMENTO' vazia ou não encontrada no Google Sheets.")
+
+
+# ==============================================================================
+# PÁGINA 3: HISTÓRICO 325 (NOVA PÁGINA DE TRANSFERÊNCIAS)
+# ==============================================================================
+elif pagina == "🚛 Histórico325":
+    st.title("🚛 Visão de Transferências Inbound")
+    
+    if not df_transf.empty:
+        # Filtro de Data específico das Transferências
+        df_transf_periodo = df_transf[(df_transf['DATA_FILTRO'].dt.date >= data_inicio) & (df_transf['DATA_FILTRO'].dt.date <= data_fim)].copy()
+
+        st.sidebar.markdown("---")
+        st.sidebar.header("🔍 Filtros de Transferência")
+        
+        opcoes_modal = df_transf_periodo['MODAL2'].unique() if 'MODAL2' in df_transf_periodo.columns else []
+        modal_selecionado = st.sidebar.multiselect("Tipo de Carga (Modal)", options=opcoes_modal, default=opcoes_modal)
+        
+        if 'MODAL2' in df_transf_periodo.columns:
+            df_transf_periodo = df_transf_periodo[df_transf_periodo['MODAL2'].isin(modal_selecionado)]
+
+        # Criação do Agrupamento por Carga (Resumo Executivo)
+        if 'ID_CARGA_PCP' in df_transf_periodo.columns:
+            resumo_cargas = df_transf_periodo.groupby('ID_CARGA_PCP').agg({
+                'DATA_FILTRO': 'first',
+                'MODAL2': 'first' if 'MODAL2' in df_transf_periodo.columns else lambda x: 'N/D',
+                'PRODUTO': 'nunique', # Conta SKUs distintos
+                'QTDE': 'sum'         # Soma peças totais
+            }).rename(columns={'PRODUTO': 'Qtd SKUs', 'QTDE': 'Qtd Peças', 'MODAL2': 'Modalidade', 'DATA_FILTRO': 'Data'}).reset_index()
+            
+            total_cargas = len(resumo_cargas)
+            total_skus = df_transf_periodo['PRODUTO'].nunique() if 'PRODUTO' in df_transf_periodo.columns else 0
+            total_pecas = resumo_cargas['Qtd Peças'].sum()
+            
+            st.markdown("### 📊 Indicadores Globais do Período")
+            col_t1, col_t2, col_t3 = st.columns(3)
+            with col_t1: exibir_kpi("🚛 Cargas Esperadas", total_cargas, "Transferências únicas", "#9B59B6")
+            with col_t2: exibir_kpi("📦 Mix de Produtos", total_skus, "SKUs diferentes", "#3498DB")
+            with col_t3: exibir_kpi("🔢 Volume Físico", f"{total_pecas:,.0f}".replace(',', '.'), "Total de peças", "#2ECC71")
+
+            st.markdown("---")
+            st.markdown("### 📈 Análise de Fluxo")
+            
+            graf_col1, graf_col2 = st.columns([2, 1])
+            with graf_col1:
+                evolucao = resumo_cargas.groupby('Data')['Qtd Peças'].sum().reset_index()
+                fig_transf = px.bar(evolucao, x='Data', y='Qtd Peças', text='Qtd Peças', title="Volume de Peças por Dia", color_discrete_sequence=['#9B59B6'])
+                fig_transf.update_traces(textposition='outside')
+                fig_transf.update_layout(xaxis=dict(tickformat="%d/%m/%Y"), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_transf, use_container_width=True)
+            
+            with graf_col2:
+                fig_modal = px.pie(resumo_cargas, values='Qtd Peças', names='Modalidade', title="Distribuição por Modal", hole=0.4, color_discrete_sequence=px.colors.sequential.Agal)
+                fig_modal.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig_modal, use_container_width=True)
+
+            st.markdown("---")
+            st.markdown("### 📦 Inspecionar Transferência")
+            
+            carga_selecionada = st.selectbox("Selecione o ID da Carga (ID_CARGA_PCP) para ver os itens:", resumo_cargas['ID_CARGA_PCP'].unique())
+            
+            df_itens_carga = df_transf_periodo[df_transf_periodo['ID_CARGA_PCP'] == carga_selecionada]
+            
+            if not df_itens_carga.empty:
+                info_carga = resumo_cargas[resumo_cargas['ID_CARGA_PCP'] == carga_selecionada].iloc[0]
+                
+                ic_col1, ic_col2, ic_col3 = st.columns(3)
+                with ic_col1: exibir_kpi("📦 Itens (SKUs)", info_carga['Qtd SKUs'], "Na Carga", "#3498DB")
+                with ic_col2: exibir_kpi("🔢 Total de Peças", f"{info_carga['Qtd Peças']:,.0f}".replace(',', '.'), "Físico", "#9B59B6")
+                with ic_col3: exibir_kpi("🚚 Modalidade", info_carga['Modalidade'], "Tipo", "#F39C12")
+
+                colunas_detalhe = [c for c in ['PRODUTO', 'DESCRICAO', 'CLASSE AJ', 'QTDE'] if c in df_itens_carga.columns]
+                st.dataframe(df_itens_carga[colunas_detalhe].rename(columns={'PRODUTO': 'SKU', 'DESCRICAO': 'Descrição', 'QTDE': 'Quantidade'}), use_container_width=True, hide_index=True)
+        else:
+            st.warning("A coluna 'ID_CARGA_PCP' não foi encontrada na planilha de Transferências.")
+    else:
+        st.warning("⚠️ Não foi possível carregar os dados. Verifique se o e-mail do robô foi adicionado como Leitor/Editor na planilha de Transferências!")
