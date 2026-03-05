@@ -12,31 +12,20 @@ st.set_page_config(page_title="Torre de Controle | Magalu", page_icon="🛍️",
 # --- INJEÇÃO DE CSS (NOVO DESIGN: SOFT UI & BORDAS ARREDONDADAS) ---
 st.markdown("""
 <style>
-    /* Fundo geral mais suave e limpo */
     .stApp { background-color: #F4F7F6; color: #2C3E50; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
-    
-    /* Tipografia dos Títulos mais elegante */
     h1, h2, h3 { color: #2C3E50 !important; font-weight: 800; letter-spacing: -0.5px; }
-    
-    /* Linhas divisórias mais suaves */
     hr { border-top: 2px solid #EAEDED; border-radius: 2px; }
-    
-    /* Tabelas (DataFrames) com bordas arredondadas e sombra */
     [data-testid="stDataFrame"] { 
         border: none !important; 
         border-radius: 12px !important; 
         box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05) !important; 
         overflow: hidden !important; 
     }
-    
-    /* Barra Lateral Suave */
     [data-testid="stSidebar"] {
         background-color: #FFFFFF;
         box-shadow: 2px 0 15px rgba(0, 0, 0, 0.03);
         border-right: none;
     }
-    
-    /* Menus retráteis (Expanders) redondinhos */
     .streamlit-expanderHeader {
         background-color: #FFFFFF !important;
         border-radius: 10px !important;
@@ -49,27 +38,22 @@ st.markdown("""
 def formatar_moeda(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- NOVO COMPONENTE DE KPI (DESIGN ESTILO CARD COM BORDA COLORIDA) ---
+# --- NOVO COMPONENTE DE KPI ---
 def exibir_kpi(titulo, valor, subtitulo="", cor="#0086FF"):
     st.markdown(f"""
     <div style="
-        background-color: #FFFFFF;
-        border-radius: 12px;
-        padding: 16px 20px;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04);
-        border-left: 6px solid {cor};
-        margin-bottom: 15px;
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        background-color: #FFFFFF; border-radius: 12px; padding: 16px 20px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04); border-left: 6px solid {cor};
+        margin-bottom: 15px; transition: transform 0.2s ease, box-shadow 0.2s ease;
     " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(0, 0, 0, 0.08)';" 
       onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(0, 0, 0, 0.04)';">
-        <p style="margin: 0; font-size: 13px; color: #7F8C8D; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">{titulo}</p>
+        <p style="margin: 0; font-size: 13px; color: #7F8C8D; font-weight: 600; text-transform: uppercase;">{titulo}</p>
         <h2 style="margin: 5px 0; font-size: 32px; color: #2C3E50; font-weight: 800;">{valor}</h2>
         <p style="margin: 0; font-size: 13px; color: #95A5A6; font-weight: 500;">{subtitulo}</p>
     </div>
     """, unsafe_allow_html=True)
 
-
-# --- CONEXÃO INTELIGENTE (LOCAL / NUVEM) ---
+# --- CONEXÃO INTELIGENTE ---
 def conectar_google_sheets():
     try:
         cred_dict = json.loads(st.secrets["google_json"])
@@ -81,8 +65,8 @@ def conectar_google_sheets():
     client = gspread.authorize(creds)
     return client.open_by_key('1WA5GjT1f-jpQ4Sw_OfvXBERyz5MehfH7uaFrIfUMrtw')
 
-# --- EXTRAÇÃO DOS DADOS DO GOOGLE SHEETS ---
-@st.cache_data(ttl=300) # Atualiza a cada 5 minutos
+# --- EXTRAÇÃO DE DADOS (AGORA 100% BLINDADA CONTRA ERRO DE COLUNAS) ---
+@st.cache_data(ttl=300)
 def carregar_dados():
     df = pd.DataFrame()
     df_itens = pd.DataFrame()
@@ -91,38 +75,43 @@ def carregar_dados():
     try:
         planilha = conectar_google_sheets()
         
-        # 1. ABA CONSOLIDADO
+        # ==============================================================================
+        # 1. ABA CONSOLIDADO (Caçador de Colunas Ativado)
+        # ==============================================================================
         ws_consolidado = planilha.worksheet("CONSOLIDADO")
         dados_consolidado = ws_consolidado.get_all_values() 
         
         if dados_consolidado and len(dados_consolidado) > 1:
-            df_raw = pd.DataFrame(dados_consolidado[1:], columns=dados_consolidado[0])
-            df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
-            df_raw = df_raw.loc[:, df_raw.columns != '']
+            df = pd.DataFrame(dados_consolidado[1:], columns=dados_consolidado[0])
+            df = df.loc[:, ~df.columns.duplicated()]
+            df = df.loc[:, df.columns != '']
+            df.columns = df.columns.str.strip().str.upper()
             
-            df_raw.columns = df_raw.columns.str.strip().str.upper()
+            # Caçador Inteligente: Procura a palavra chave e renomeia sem duplicar
+            map_cons = {}
+            alvos_cons = set()
+            for c in df.columns:
+                if 'AGENDA' in c and 'Agenda' not in alvos_cons: map_cons[c] = 'Agenda'; alvos_cons.add('Agenda')
+                elif 'DATA' in c and 'Data' not in alvos_cons: map_cons[c] = 'Data'; alvos_cons.add('Data')
+                elif 'FORNECEDOR' in c and 'Fornecedor' not in alvos_cons: map_cons[c] = 'Fornecedor'; alvos_cons.add('Fornecedor')
+                elif 'LINHA' in c and 'Linhas' not in alvos_cons: map_cons[c] = 'Linhas'; alvos_cons.add('Linhas')
+                elif 'CATEGORIA' in c and 'Categoria' not in alvos_cons: map_cons[c] = 'Categoria'; alvos_cons.add('Categoria')
+                elif 'SKU' in c and 'Qtd SKUs' not in alvos_cons: map_cons[c] = 'Qtd SKUs'; alvos_cons.add('Qtd SKUs')
+                elif ('PEÇA' in c or 'PECA' in c) and 'Qtd Peças' not in alvos_cons: map_cons[c] = 'Qtd Peças'; alvos_cons.add('Qtd Peças')
+                elif 'STATUS' in c and 'Status' not in alvos_cons: map_cons[c] = 'Status'; alvos_cons.add('Status')
             
-            mapeamento = {
-                'CODAGENDA': 'Agenda',
-                'DTAGENDA': 'Data',
-                'FORNE_PRINC': 'Fornecedor',
-                'LINHA': 'Linhas',
-                'STATUS': 'Status',
-                'PEÇAS REAL': 'Qtd Peças',
-                'QTCOMP': 'Qtd Peças',
-                'COMPITEM': 'SKU',
-                'DESCRICAO': 'Descrição',
-                'CATEGORIA': 'Categoria'
-            }
-            df_raw = df_raw.rename(columns=mapeamento)
+            df = df.rename(columns=map_cons)
+            df = df.loc[:, ~df.columns.duplicated()]
             
-            if 'Qtd Peças' in df_raw.columns:
-                df_raw['Qtd Peças'] = pd.to_numeric(df_raw['Qtd Peças'], errors='coerce').fillna(0)
-            else:
-                df_raw['Qtd Peças'] = 0
+            # GARANTIA DE VIDA: Se a coluna sumir do arquivo, o código cria ela vazia para não dar o erro "KeyError"
+            for col in ['Agenda', 'Data', 'Fornecedor', 'Linhas', 'Categoria', 'Status']:
+                if col not in df.columns: df[col] = ''
+            for col in ['Qtd SKUs', 'Qtd Peças']:
+                if col not in df.columns: df[col] = 0
+                else: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            if 'É Ofensor?' not in df.columns: df['É Ofensor?'] = 'Não'
 
-            df_raw['É Ofensor?'] = 'Não' 
-
+            # Tratamentos Finais
             def padronizar_status(val):
                 v = str(val).upper().strip()
                 if 'AGENDADO' in v: return 'Agendado'
@@ -133,35 +122,18 @@ def carregar_dados():
                 if 'DESCARGA' in v: return 'Em Descarga'
                 return v.title()
 
-            if 'Status' in df_raw.columns:
-                df_raw['Status'] = df_raw['Status'].apply(padronizar_status)
-
-            if 'Data' in df_raw.columns:
-                df_raw['Data'] = pd.to_datetime(df_raw['Data'], errors='coerce', dayfirst=True)
-            if 'Agenda' in df_raw.columns:
-                df_raw = df_raw[df_raw['Agenda'].astype(str).str.strip() != '']
-                df_raw['Agenda'] = df_raw['Agenda'].astype(str).str.split('.').str[0].str.strip()
-
-            df_itens = df_raw.copy()
-
-            df = df_raw.groupby(['Data', 'Agenda']).agg({
-                'Fornecedor': 'first',
-                'Status': 'first',
-                'Linhas': lambda x: ', '.join(x.dropna().astype(str).unique()) if 'Linhas' in df_raw.columns else '',
-                'Agenda': 'size',
-                'Qtd Peças': 'sum',
-                'É Ofensor?': 'first'
-            }).rename(columns={'Agenda': 'Qtd SKUs'}).reset_index()
-
-            df['Data'] = pd.to_datetime(df['Data'], errors='coerce').dt.normalize()
-            df['Agenda_Texto'] = df['Agenda'].astype(str).str.strip()
+            df['Status'] = df['Status'].apply(padronizar_status)
+            df['Data'] = pd.to_datetime(df['Data'], errors='coerce', dayfirst=True).dt.normalize()
+            
+            df = df[df['Agenda'].astype(str).str.strip() != '']
+            df['Agenda'] = df['Agenda'].astype(str).str.split('.').str[0].str.strip()
+            df['Agenda_Texto'] = df['Agenda']
             df['Canal'] = df['Agenda_Texto'].apply(lambda x: 'Fulfillment' if len(x) >= 6 else '1P Fornecedor')
 
             def calcular_minutos(row):
                 canal = row.get('Canal', '')
                 fornecedor = str(row.get('Fornecedor', '')).strip().upper()
-                if canal == 'Fulfillment':
-                    return 60.0 
+                if canal == 'Fulfillment': return 60.0 
                 else:
                     linhas = str(row.get('Linhas', '')).upper().split(',')
                     maior_tempo = 0 
@@ -181,7 +153,39 @@ def carregar_dados():
             
             df['Tempo_APC_Minutos'] = df.apply(calcular_minutos, axis=1)
 
-        # 2. ABA PLANEJAMENTO
+        # ==============================================================================
+        # 2. ABA ITEM AGENDA (Caçador de Colunas Ativado)
+        # ==============================================================================
+        try:
+            ws_itens = planilha.worksheet("Item Agenda")
+            dados_itens = ws_itens.get_all_values()
+            if dados_itens and len(dados_itens) > 1:
+                df_itens = pd.DataFrame(dados_itens[1:], columns=dados_itens[0])
+                df_itens = df_itens.loc[:, ~df_itens.columns.duplicated()]
+                df_itens = df_itens.loc[:, df_itens.columns != '']
+                df_itens.columns = df_itens.columns.str.strip().str.upper()
+                
+                map_itens = {}
+                alvos_itens = set()
+                for c in df_itens.columns:
+                    if 'AGENDA' in c and 'Agenda' not in alvos_itens: map_itens[c] = 'Agenda'; alvos_itens.add('Agenda')
+                    elif ('SKU' in c or 'COMPITEM' in c or 'CÓDIGO' in c or 'CODIGO' in c) and 'SKU' not in alvos_itens: map_itens[c] = 'SKU'; alvos_itens.add('SKU')
+                    elif ('DESCRI' in c or 'PRODUTO' in c) and 'Descrição' not in alvos_itens: map_itens[c] = 'Descrição'; alvos_itens.add('Descrição')
+                    elif 'LINHA' in c and 'Linhas' not in alvos_itens: map_itens[c] = 'Linhas'; alvos_itens.add('Linhas')
+                    elif 'CATEGORIA' in c and 'Categoria' not in alvos_itens: map_itens[c] = 'Categoria'; alvos_itens.add('Categoria')
+                    elif ('PEÇA' in c or 'PECA' in c or 'QTCOMP' in c) and 'Qtd Peças' not in alvos_itens: map_itens[c] = 'Qtd Peças'; alvos_itens.add('Qtd Peças')
+                
+                df_itens = df_itens.rename(columns=map_itens)
+                df_itens = df_itens.loc[:, ~df_itens.columns.duplicated()]
+                
+                if 'Agenda' in df_itens.columns:
+                    df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.split('.').str[0].str.strip()
+        except:
+            pass 
+
+        # ==============================================================================
+        # 3. ABA PLANEJAMENTO
+        # ==============================================================================
         try:
             ws_plan = planilha.worksheet("PLANEJAMENTO")
             dados_plan = ws_plan.get_all_values()
@@ -282,13 +286,12 @@ if pagina == "🏠 Painel Operacional":
     total_agendas = len(df_filtrado_op)
     taxa_noshow = (qtd_noshow / total_agendas * 100) if total_agendas > 0 else 0
 
-    # UTILIZANDO OS NOVOS KPIs COM CORES SEMÂNTICAS
-    with col_kpi1: exibir_kpi("📅 Agendado", qtd_agendado, "Total de agendas", "#3498DB")      # Azul
-    with col_kpi2: exibir_kpi("🚛 Em Trânsito", qtd_transito, "A caminho do CD", "#9B59B6")  # Roxo
-    with col_kpi3: exibir_kpi("⏳ Pátio", qtd_aguardando, "Aguardando doca", "#F39C12")         # Laranja
-    with col_kpi4: exibir_kpi("⚙️ Em Descarga", qtd_descarga, "Operação rodando", "#1ABC9C")   # Ciano/Teal
-    with col_kpi5: exibir_kpi("✅ Recebido", qtd_recebido, "Finalizados", "#2ECC71")           # Verde
-    with col_kpi6: exibir_kpi("❌ No-Show", qtd_noshow, f"{taxa_noshow:.1f}% de quebra", "#E74C3C") # Vermelho
+    with col_kpi1: exibir_kpi("📅 Agendado", qtd_agendado, "Total de agendas", "#3498DB")
+    with col_kpi2: exibir_kpi("🚛 Em Trânsito", qtd_transito, "A caminho do CD", "#9B59B6")
+    with col_kpi3: exibir_kpi("⏳ Pátio", qtd_aguardando, "Aguardando doca", "#F39C12")
+    with col_kpi4: exibir_kpi("⚙️ Em Descarga", qtd_descarga, "Operação rodando", "#1ABC9C")
+    with col_kpi5: exibir_kpi("✅ Recebido", qtd_recebido, "Finalizados", "#2ECC71")
+    with col_kpi6: exibir_kpi("❌ No-Show", qtd_noshow, f"{taxa_noshow:.1f}% de quebra", "#E74C3C")
 
     st.markdown("---")
 
