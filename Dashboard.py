@@ -660,7 +660,7 @@ elif pagina == "🧩 Planejamento Lego":
 # PÁGINA 3: HISTÓRICO 325 (TRANSFERÊNCIAS)
 # ==============================================================================
 elif pagina == "🚛 Transferências":
-    st.title("🚛 Visão de Transferências | Histórico325")
+    st.title("🚛 Visão de Transferências ")
     
     if not df_transf.empty:
         df_transf_periodo = df_transf[(df_transf['DATA_FILTRO'].dt.date >= data_inicio) & (df_transf['DATA_FILTRO'].dt.date <= data_fim)].copy()
@@ -744,5 +744,6 @@ elif pagina == "🚛 Transferências":
             st.warning("A coluna 'ID_CARGA_PCP' não foi encontrada na planilha de Transferências.")
     else:
         st.warning("⚠️ Planilha de Transferências não carregou. O e-mail do robô está como Leitor nela?")
+
 
 
