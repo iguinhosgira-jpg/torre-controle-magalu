@@ -64,7 +64,7 @@ def conectar_google():
     
     return gspread.authorize(creds)
 
-# --- EXTRAÇÃO DE DADOS (MULTIPLAS PLANILHAS & AGRUPAMENTOS) ---
+# --- EXTRAÇÃO DE DADOS ---
 @st.cache_data(ttl=300)
 def carregar_dados():
     df = pd.DataFrame()
@@ -94,16 +94,12 @@ def carregar_dados():
                     apc_full_dict[str(row.iloc[0]).strip().upper()] = pd.to_numeric(row.iloc[1], errors='coerce')
             except: pass
             
-        # --- CARREGAMENTO DAS EXCEÇÕES (MUITO MAIS BLINDADO AGORA) ---
         try:
             ws_excecoes = planilha_principal.worksheet("EXCECOES_1P")
             dados_excecoes = ws_excecoes.get_all_values()
             if len(dados_excecoes) > 1:
                 df_excecoes = pd.DataFrame(dados_excecoes[1:], columns=dados_excecoes[0])
-                # Remove os espaços invisíveis no começo e no fim dos nomes das colunas
                 df_excecoes.columns = df_excecoes.columns.str.strip() 
-                
-                # Tratamento Inteligente da Coluna Data
                 if 'Data da Vaga' in df_excecoes.columns:
                     df_excecoes['Data da Vaga'] = pd.to_datetime(df_excecoes['Data da Vaga'], dayfirst=True, errors='coerce').dt.normalize()
         except: 
@@ -338,11 +334,16 @@ datas_selecionadas = st.sidebar.date_input(
 if len(datas_selecionadas) == 2: data_inicio, data_fim = datas_selecionadas
 else: data_inicio = data_fim = datas_selecionadas[0]
 
+# --- CORREÇÃO DO ERRO DE TYPE ERROR: Convertendo datas para o padrão Pandas Timestamp ---
+ts_inicio = pd.to_datetime(data_inicio)
+ts_fim = pd.to_datetime(data_fim)
+
 # ==============================================================================
 # PÁGINA 1: PAINEL OPERACIONAL
 # ==============================================================================
 if pagina == "🏠 Painel Operacional":
-    df_filtrado = df[(df['Data'].dt.date >= data_inicio) & (df['Data'].dt.date <= data_fim)]
+    # Uso do ts_inicio e ts_fim em vez do .dt.date
+    df_filtrado = df[(df['Data'] >= ts_inicio) & (df['Data'] <= ts_fim)]
     
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Parâmetros Operacionais")
@@ -426,9 +427,9 @@ if pagina == "🏠 Painel Operacional":
             fig_1p.update_layout(xaxis=dict(tickformat="%d/%m/%Y"), showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig_1p, use_container_width=True)
             
-            # --- O PULO DO GATO (BLINDADO CONTRA KEY ERROR) ---
+            # --- Tabela de Exceções Blindada usando Timestamp ---
             if not df_excecoes.empty and 'Data da Vaga' in df_excecoes.columns:
-                df_ex_filtro = df_excecoes[(df_excecoes['Data da Vaga'].dt.date >= data_inicio) & (df_excecoes['Data da Vaga'].dt.date <= data_fim)].copy()
+                df_ex_filtro = df_excecoes[(df_excecoes['Data da Vaga'] >= ts_inicio) & (df_excecoes['Data da Vaga'] <= ts_fim)].copy()
                 if not df_ex_filtro.empty:
                     df_ex_filtro['Data da Vaga'] = df_ex_filtro['Data da Vaga'].dt.strftime('%d/%m/%Y')
                     with st.expander("💡 Visualizar Justificativas de Vagas Extras no Período", expanded=False):
@@ -538,7 +539,8 @@ if pagina == "🏠 Painel Operacional":
 elif pagina == "🧩 Planejamento Lego":
     st.title("🧩 Visão planejamento capacidade LEGO")
 
-    df_plan_filtrado = df_plan[(df_plan['data'].dt.date >= data_inicio) & (df_plan['data'].dt.date <= data_fim)].copy() if not df_plan.empty else pd.DataFrame()
+    # Tratamento com ts_inicio e ts_fim
+    df_plan_filtrado = df_plan[(df_plan['data'] >= ts_inicio) & (df_plan['data'] <= ts_fim)].copy() if not df_plan.empty else pd.DataFrame()
 
     if not df_plan.empty:
         st.markdown("### 🎯 Planejamento Mensal do Comercial")
@@ -683,7 +685,8 @@ elif pagina == "🚛 Histórico325":
     st.title("🚛 Visão de Transferências | Histórico325")
     
     if not df_transf.empty:
-        df_transf_periodo = df_transf[(df_transf['DATA_FILTRO'].dt.date >= data_inicio) & (df_transf['DATA_FILTRO'].dt.date <= data_fim)].copy()
+        # Tratamento com ts_inicio e ts_fim para blindar contra NaT (Not a Time)
+        df_transf_periodo = df_transf[(df_transf['DATA_FILTRO'] >= ts_inicio) & (df_transf['DATA_FILTRO'] <= ts_fim)].copy()
 
         st.sidebar.markdown("---")
         st.sidebar.header("🔍 Filtros de Transferência")
