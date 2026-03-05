@@ -312,7 +312,7 @@ st.sidebar.image("https://magalog.com.br/opengraph-image.jpg?fdd536e7d35ec9da", 
 st.sidebar.markdown("<br>", unsafe_allow_html=True)
 
 st.sidebar.header("📍 Menu de Navegação")
-pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "🧩 Planejamento Lego", "🚛 Histórico325", "📝 Solicitações Extras"])
+pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "🧩 Planejamento Lego", "🚛 Transferência", "📝 Solicitações Extras"])
 st.sidebar.markdown("---")
 
 st.sidebar.header("📅 Período de Análise")
@@ -681,8 +681,8 @@ elif pagina == "🧩 Planejamento Lego":
 # ==============================================================================
 # PÁGINA 3: HISTÓRICO 325 (TRANSFERÊNCIAS)
 # ==============================================================================
-elif pagina == "🚛 Histórico325":
-    st.title("🚛 Visão de Transferências | Histórico325")
+elif pagina == "🚛 Transferência":
+    st.title("🚛 Visão de Transferências | Transferência")
     
     if not df_transf.empty:
         # Tratamento com ts_inicio e ts_fim para blindar contra NaT (Not a Time)
@@ -824,3 +824,4 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
+
