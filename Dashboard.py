@@ -9,7 +9,7 @@ import json
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Torre de Controle | Magalu", page_icon="🛍️", layout="wide", initial_sidebar_state="expanded")
 
-# --- INJEÇÃO DE CSS (DESIGN: SOFT UI & BORDAS ARREDONDADAS) ---
+# --- INJEÇÃO DE CSS (DESIGN: SOFT UI) ---
 st.markdown("""
 <style>
     .stApp { background-color: #F4F7F6; color: #2C3E50; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
@@ -64,7 +64,7 @@ def conectar_google():
     
     return gspread.authorize(creds)
 
-# --- EXTRAÇÃO DE DADOS (MULTIPLAS PLANILHAS) ---
+# --- EXTRAÇÃO DE DADOS (MULTIPLAS PLANILHAS & AGRUPAMENTOS) ---
 @st.cache_data(ttl=300)
 def carregar_dados():
     df = pd.DataFrame()
@@ -94,37 +94,46 @@ def carregar_dados():
         except: pass
 
         # ==============================================================================
-        # 1. ABA CONSOLIDADO
+        # 1. ABA CONSOLIDADO (COM UNIFICAÇÃO DE AGENDAS & REGRA DA MADEIRA)
         # ==============================================================================
         ws_consolidado = planilha_principal.worksheet("CONSOLIDADO")
         dados_consolidado = ws_consolidado.get_all_values() 
         if dados_consolidado and len(dados_consolidado) > 1:
-            df = pd.DataFrame(dados_consolidado[1:], columns=dados_consolidado[0])
-            df = df.loc[:, ~df.columns.duplicated()]
-            df = df.loc[:, df.columns != '']
-            df.columns = df.columns.str.strip().str.upper()
+            df_raw = pd.DataFrame(dados_consolidado[1:], columns=dados_consolidado[0])
+            df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
+            df_raw = df_raw.loc[:, df_raw.columns != '']
+            df_raw.columns = df_raw.columns.str.strip().str.upper()
             
             map_cons = {}
             alvos_cons = set()
-            for c in df.columns:
+            for c in df_raw.columns:
                 if 'AGENDA' in c and 'Agenda' not in alvos_cons: map_cons[c] = 'Agenda'; alvos_cons.add('Agenda')
                 elif 'DATA' in c and 'Data' not in alvos_cons: map_cons[c] = 'Data'; alvos_cons.add('Data')
                 elif 'FORNECEDOR' in c and 'Fornecedor' not in alvos_cons: map_cons[c] = 'Fornecedor'; alvos_cons.add('Fornecedor')
                 elif 'LINHA' in c and 'Linhas' not in alvos_cons: map_cons[c] = 'Linhas'; alvos_cons.add('Linhas')
                 elif 'CATEGORIA' in c and 'Categoria' not in alvos_cons: map_cons[c] = 'Categoria'; alvos_cons.add('Categoria')
-                elif 'SKU' in c and 'Qtd SKUs' not in alvos_cons: map_cons[c] = 'Qtd SKUs'; alvos_cons.add('Qtd SKUs')
                 elif ('PEÇA' in c or 'PECA' in c) and 'Qtd Peças' not in alvos_cons: map_cons[c] = 'Qtd Peças'; alvos_cons.add('Qtd Peças')
                 elif 'STATUS' in c and 'Status' not in alvos_cons: map_cons[c] = 'Status'; alvos_cons.add('Status')
             
-            df = df.rename(columns=map_cons)
-            df = df.loc[:, ~df.columns.duplicated()]
+            df_raw = df_raw.rename(columns=map_cons)
+            df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
             
+            # Garantias de colunas e limpeza
             for col in ['Agenda', 'Data', 'Fornecedor', 'Linhas', 'Categoria', 'Status']:
-                if col not in df.columns: df[col] = ''
-            for col in ['Qtd SKUs', 'Qtd Peças']:
-                if col not in df.columns: df[col] = 0
-                else: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            if 'É Ofensor?' not in df.columns: df['É Ofensor?'] = 'Não'
+                if col not in df_raw.columns: df_raw[col] = ''
+            if 'Qtd Peças' not in df_raw.columns: df_raw['Qtd Peças'] = 0
+            else: df_raw['Qtd Peças'] = pd.to_numeric(df_raw['Qtd Peças'], errors='coerce').fillna(0)
+            if 'É Ofensor?' not in df_raw.columns: df_raw['É Ofensor?'] = 'Não'
+
+            # Identifica as peças de madeira antes de agrupar
+            df_raw['Pecas_Madeira'] = df_raw.apply(
+                lambda r: r['Qtd Peças'] if 'MADEIRA' in str(r.get('Linhas', '')).upper() else 0, 
+                axis=1
+            )
+
+            df_raw['Data'] = pd.to_datetime(df_raw['Data'], errors='coerce', dayfirst=True).dt.normalize()
+            df_raw = df_raw[df_raw['Agenda'].astype(str).str.strip() != '']
+            df_raw['Agenda'] = df_raw['Agenda'].astype(str).str.split('.').str[0].str.strip()
 
             def padronizar_status(val):
                 v = str(val).upper().strip()
@@ -136,48 +145,72 @@ def carregar_dados():
                 if 'DESCARGA' in v: return 'Em Descarga'
                 return v.title()
 
-            df['Status'] = df['Status'].apply(padronizar_status)
-            df['Data'] = pd.to_datetime(df['Data'], errors='coerce', dayfirst=True).dt.normalize()
-            
-            df = df[df['Agenda'].astype(str).str.strip() != '']
-            df['Agenda'] = df['Agenda'].astype(str).str.split('.').str[0].str.strip()
-            df['Agenda_Texto'] = df['Agenda']
-            df['Canal'] = df['Agenda_Texto'].apply(lambda x: 'Fulfillment' if len(x) >= 6 else '1P Fornecedor')
+            df_raw['Status'] = df_raw['Status'].apply(padronizar_status)
 
-            # --- CÁLCULO DE TEMPO: APROXIMAÇÃO + TRAVA ANTI-BUG (> 300) ---
+            # AGRUPAMENTO MESTRE: Unifica as linhas da mesma agenda (Fim do erro do bagatolionline)
+            df = df_raw.groupby(['Data', 'Agenda']).agg(
+                Fornecedor=('Fornecedor', 'first'),
+                Status=('Status', 'first'),
+                Linhas=('Linhas', lambda x: ', '.join(sorted(set([str(i).strip() for i in x.dropna() if str(i).strip()])))),
+                Qtd_SKUs=('Agenda', 'count'), # Quantidade de linhas originais
+                Qtd_Pecas=('Qtd Peças', 'sum'),
+                Pecas_Madeira=('Pecas_Madeira', 'sum'),
+                E_Ofensor=('É Ofensor?', 'first')
+            ).reset_index()
+
+            # Renomeia de volta para o padrão do painel
+            df = df.rename(columns={'Qtd_SKUs': 'Qtd SKUs', 'Qtd_Pecas': 'Qtd Peças', 'E_Ofensor': 'É Ofensor?'})
+
+            df['Agenda_Texto'] = df['Agenda']
+            df['Canal'] = df['Agenda_Texto'].apply(lambda x: 'Fulfillment' if len(str(x)) >= 6 else '1P Fornecedor')
+
+            # --- NOVO CÁLCULO DE TEMPO: APROXIMAÇÃO + TRAVA 300 + REGRA MADEIRA > 10 ---
             def calcular_minutos(row):
-                canal = row.get('Canal', '')
-                forn_original = str(row.get('Fornecedor', '')).strip().upper()
-                
-                if canal == 'Fulfillment':
-                    for chave_forn, tempo in apc_full_dict.items():
-                        if chave_forn in forn_original:
-                            # SE FOR MAIOR QUE 300 MINUTOS É BUG, PULA PARA 60
-                            if tempo > 300:
-                                return 60.0
-                            return tempo
-                    return 60.0
-                else:
-                    linhas = str(row.get('Linhas', '')).upper().split(',')
-                    maior_tempo = 0 
-                    for l in linhas:
-                        t = 90
-                        if 'MADEIRA' in l: t = 180 if 'TUBRAX' in forn_original else 427
-                        elif 'PNEU' in l: t = 240
-                        elif 'TRANSFERENCIA RUIM' in l: t = 40
-                        elif 'TRANSFERENCIA' in l: t = 240
-                        elif 'MERCADO' in l: t = 150
-                        elif 'ELETRO' in l: t = 95
-                        elif 'COFRE' in l: t = 90
-                        elif 'IMAGEM' in l: t = 90
-                        elif 'COLCHÃO' in l or 'ESTOFADO' in l: t = 60
-                        if t > maior_tempo: maior_tempo = t
-                    return maior_tempo
+                try:
+                    canal = row.get('Canal', '')
+                    forn_original = str(row.get('Fornecedor', '')).strip().upper()
+                    
+                    if canal == 'Fulfillment':
+                        for chave_forn, tempo in apc_full_dict.items():
+                            if chave_forn in forn_original:
+                                # Trava de Segurança: Se for maior que 300, é erro sistêmico, força 60.
+                                if tempo > 300:
+                                    return 60.0
+                                return float(tempo)
+                        return 60.0
+                    else:
+                        linhas = str(row.get('Linhas', '')).upper()
+                        maior_tempo = 0 
+                        
+                        for l in linhas.split(','):
+                            t = 90 # Base 1P
+                            
+                            # Regra da Madeira: Só conta carga longa se tiver MAIS de 10 peças
+                            if 'MADEIRA' in l: 
+                                if row.get('Pecas_Madeira', 0) > 10:
+                                    t = 180 if 'TUBRAX' in forn_original else 427
+                                else:
+                                    t = 90
+                            elif 'PNEU' in l: t = 240
+                            elif 'TRANSFERENCIA RUIM' in l: t = 40
+                            elif 'TRANSFERENCIA' in l: t = 240
+                            elif 'MERCADO' in l: t = 150
+                            elif 'ELETRO' in l: t = 95
+                            elif 'COFRE' in l: t = 90
+                            elif 'IMAGEM' in l: t = 90
+                            elif 'COLCHÃO' in l or 'ESTOFADO' in l: t = 60
+                            
+                            if t > maior_tempo: maior_tempo = t
+                        
+                        # Retorna o maior tempo ou 60 em caso de erro residual
+                        return float(maior_tempo) if maior_tempo > 0 else 60.0
+                except:
+                    return 60.0 # Nunca retorna None
             
             df['Tempo_APC_Minutos'] = df.apply(calcular_minutos, axis=1)
 
         # ==============================================================================
-        # 2. ABA ITEM AGENDA
+        # 2. ABA ITEM AGENDA (A Mágica do "Inspecionar Cargas")
         # ==============================================================================
         try:
             ws_itens = planilha_principal.worksheet("Item Agenda")
@@ -234,7 +267,7 @@ def carregar_dados():
         except: pass 
 
         # ==============================================================================
-        # PLANILHA 2: HISTÓRICO DE TRANSFERÊNCIAS 325
+        # 4. PLANILHA 2: HISTÓRICO DE TRANSFERÊNCIAS 325
         # ==============================================================================
         try:
             planilha_transf = cliente_google.open_by_key('1PMgqjZr2nieniRShicaPyxAe6J6j7I04FFE5aNWnm_s')
