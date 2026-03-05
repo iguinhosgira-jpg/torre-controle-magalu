@@ -71,26 +71,35 @@ def carregar_dados():
     df_itens = pd.DataFrame()
     df_plan = pd.DataFrame()
     df_transf = pd.DataFrame()
+    df_excecoes = pd.DataFrame()
     
     try:
         cliente_google = conectar_google()
         planilha_principal = cliente_google.open_by_key('1WA5GjT1f-jpQ4Sw_OfvXBERyz5MehfH7uaFrIfUMrtw')
         
         # ==============================================================================
-        # 0. RECUPERANDO A BASE DE MINUTOS (APC FULL)
+        # 0. RECUPERANDO A BASE DE MINUTOS E EXCEÇÕES
         # ==============================================================================
         apc_full_dict = {}
         try:
+            ws_apc = planilha_principal.worksheet("APC_FULL")
+            dados_apc = ws_apc.get_all_values()
+            if len(dados_apc) > 1:
+                for row in dados_apc[1:]:
+                    apc_full_dict[str(row[0]).strip().upper()] = pd.to_numeric(row[1], errors='coerce')
+        except:
             try:
-                ws_apc = planilha_principal.worksheet("APC_FULL")
-                dados_apc = ws_apc.get_all_values()
-                if len(dados_apc) > 1:
-                    for row in dados_apc[1:]:
-                        apc_full_dict[str(row[0]).strip().upper()] = pd.to_numeric(row[1], errors='coerce')
-            except:
                 df_apc_csv = pd.read_csv('Apcfull.csv', sep=None, engine='python') 
                 for _, row in df_apc_csv.iterrows():
                     apc_full_dict[str(row.iloc[0]).strip().upper()] = pd.to_numeric(row.iloc[1], errors='coerce')
+            except: pass
+            
+        try:
+            ws_excecoes = planilha_principal.worksheet("EXCECOES_1P")
+            dados_excecoes = ws_excecoes.get_all_values()
+            if len(dados_excecoes) > 1:
+                df_excecoes = pd.DataFrame(dados_excecoes[1:], columns=dados_excecoes[0])
+                df_excecoes['Data da Vaga'] = pd.to_datetime(df_excecoes['Data da Vaga'], format='%d/%m/%Y', errors='coerce').dt.normalize()
         except: pass
 
         # ==============================================================================
@@ -258,7 +267,7 @@ def carregar_dados():
         except: pass 
 
         # ==============================================================================
-        # 4. PLANILHA DE TRANSFERÊNCIAS (LENDO A COLUNA V - POSIÇÃO 21)
+        # 4. PLANILHA DE TRANSFERÊNCIAS 
         # ==============================================================================
         try:
             planilha_transf = cliente_google.open_by_key('1PMgqjZr2nieniRShicaPyxAe6J6j7I04FFE5aNWnm_s')
@@ -287,9 +296,9 @@ def carregar_dados():
     except Exception as e: 
         st.error(f"🚨 Erro crítico de conexão com o Banco de Dados do Google: {e}")
         
-    return df, df_itens, df_plan, df_transf
+    return df, df_itens, df_plan, df_transf, df_excecoes
 
-df, df_itens, df_plan, df_transf = carregar_dados()
+df, df_itens, df_plan, df_transf, df_excecoes = carregar_dados()
 
 if df.empty and df_transf.empty:
     st.warning("⏳ Aguardando dados das planilhas para renderizar o Dashboard.")
@@ -300,12 +309,9 @@ st.sidebar.image("https://magalog.com.br/opengraph-image.jpg?fdd536e7d35ec9da", 
 st.sidebar.markdown("<br>", unsafe_allow_html=True)
 
 st.sidebar.header("📍 Menu de Navegação")
-pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "🧩 Planejamento Lego", "🚛 Histórico325"])
+pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "🧩 Planejamento Lego", "🚛 Histórico325", "📝 Solicitações Extras"])
 st.sidebar.markdown("---")
 
-# ==============================================================================
-# INTELIGÊNCIA DO FILTRO DE DATAS (MÊS ATUAL PADRÃO)
-# ==============================================================================
 st.sidebar.header("📅 Período de Análise")
 
 hoje = pd.Timestamp.now(tz='America/Sao_Paulo').date()
@@ -334,10 +340,7 @@ if pagina == "🏠 Painel Operacional":
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Parâmetros Operacionais")
     capacidade_diaria = st.sidebar.number_input("Equipes Disponíveis/Dia", min_value=1, max_value=30, value=6)
-    
-    # --- NOVO CAMPO: PESSOAS POR EQUIPE ---
     pessoas_por_equipe = st.sidebar.number_input("Pessoas por Equipe", min_value=1, max_value=20, value=6)
-    
     custo_hora_extra = st.sidebar.number_input("Custo da Hora Extra (R$)", min_value=1.0, value=9.0, format="%.2f")
     limite_agendas_1p = st.sidebar.number_input("Teto Agendas 1P/Dia", min_value=1, max_value=50, value=14)
 
@@ -416,6 +419,14 @@ if pagina == "🏠 Painel Operacional":
             fig_1p.update_layout(xaxis=dict(tickformat="%d/%m/%Y"), showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig_1p, use_container_width=True)
             
+            # --- O PULO DO GATO: JUSTIFICATIVAS APARECEM AQUI ---
+            if not df_excecoes.empty:
+                df_ex_filtro = df_excecoes[(df_excecoes['Data da Vaga'].dt.date >= data_inicio) & (df_excecoes['Data da Vaga'].dt.date <= data_fim)].copy()
+                if not df_ex_filtro.empty:
+                    df_ex_filtro['Data da Vaga'] = df_ex_filtro['Data da Vaga'].dt.strftime('%d/%m/%Y')
+                    with st.expander("💡 Visualizar Justificativas de Vagas Extras no Período", expanded=False):
+                        st.dataframe(df_ex_filtro[['Data da Vaga', 'Fornecedor', 'Solicitante', 'Qtd Peças', 'Qtd SKUs']], use_container_width=True, hide_index=True)
+
         with col_1p_2:
             st.subheader("Balanço 1P")
             exibir_kpi("Dias Acima do Limite", df_limite_1p['Estourou_Limite'].sum(), "Necessita adequação", "#E74C3C")
@@ -434,8 +445,6 @@ if pagina == "🏠 Painel Operacional":
     df_apc['Minutos_Disponiveis'] = capacidade_diaria * 427
     df_apc['Deficit_Minutos'] = df_apc.apply(lambda row: max(0, row['Minutos Totais'] - row['Minutos_Disponiveis']), axis=1)
     df_apc['Horas_Extras'] = (df_apc['Deficit_Minutos'] / 60).apply(math.ceil)
-    
-    # --- NOVO CÁLCULO DE CUSTO COM O TAMANHO DA EQUIPE ---
     df_apc['Custo_HE'] = df_apc['Horas_Extras'] * pessoas_por_equipe * custo_hora_extra
 
     if not df_apc.empty:
@@ -746,3 +755,63 @@ elif pagina == "🚛 Histórico325":
             st.warning("A coluna 'ID_CARGA_PCP' não foi encontrada na planilha de Transferências.")
     else:
         st.warning("⚠️ Planilha de Transferências não carregou. O e-mail do robô está como Leitor nela?")
+
+
+# ==============================================================================
+# PÁGINA 4: REGISTRO DE SOLICITAÇÕES EXTRAS (NOVA)
+# ==============================================================================
+elif pagina == "📝 Solicitações Extras":
+    st.title("📝 Registro de Vagas Extras 1P")
+    st.markdown("Utilize este canal para registrar exceções autorizadas pelo Comercial que justifiquem o estouro do Teto Diário de Agendas.")
+
+    st.markdown("### ➕ Nova Solicitação")
+    with st.form(key="form_excecao", clear_on_submit=True):
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            data_vaga = st.date_input("Data autorizada para a vaga", format="DD/MM/YYYY")
+            fornecedor_extra = st.text_input("Fornecedor / Transportadora")
+            solicitante = st.text_input("Comercial Solicitante (Quem autorizou?)")
+        with col_f2:
+            qtd_pecas_extra = st.number_input("Quantidade Estimada de Peças", min_value=0, step=1)
+            qtd_skus_extra = st.number_input("Quantidade Estimada de SKUs", min_value=0, step=1)
+        
+        submit_excecao = st.form_submit_button("💾 Salvar Registro")
+
+        if submit_excecao:
+            if not fornecedor_extra or not solicitante:
+                st.error("⚠️ Por favor, preencha o Fornecedor e o Solicitante.")
+            else:
+                try:
+                    planilha = conectar_google()
+                    ws_principal = planilha.open_by_key('1WA5GjT1f-jpQ4Sw_OfvXBERyz5MehfH7uaFrIfUMrtw')
+                    
+                    try:
+                        ws_excecoes = ws_principal.worksheet("EXCECOES_1P")
+                    except:
+                        # Cria a aba se ela não existir
+                        ws_excecoes = ws_principal.add_worksheet(title="EXCECOES_1P", rows="100", cols="6")
+                        ws_excecoes.append_row(["Data da Vaga", "Fornecedor", "Solicitante", "Qtd Peças", "Qtd SKUs", "Data do Registro"])
+                    
+                    # Salva a linha nova
+                    ws_excecoes.append_row([
+                        data_vaga.strftime("%d/%m/%Y"), 
+                        fornecedor_extra.strip().upper(), 
+                        solicitante.strip().title(), 
+                        int(qtd_pecas_extra), 
+                        int(qtd_skus_extra), 
+                        pd.Timestamp.now(tz='America/Sao_Paulo').strftime("%d/%m/%Y %H:%M:%S")
+                    ])
+                    
+                    st.success("✅ Vaga extra registrada com sucesso! Ela já justificará o Teto de Agendas no Painel Operacional.")
+                except Exception as e:
+                    st.error(f"🚨 Erro ao salvar na nuvem: {e}")
+
+    st.markdown("---")
+    st.markdown("### 📚 Histórico de Exceções")
+    
+    if not df_excecoes.empty:
+        df_exibir = df_excecoes.copy()
+        df_exibir['Data da Vaga'] = df_exibir['Data da Vaga'].dt.strftime('%d/%m/%Y')
+        st.dataframe(df_exibir, use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhuma exceção registrada até o momento.")
