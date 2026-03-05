@@ -77,31 +77,21 @@ def carregar_dados():
         planilha_principal = cliente_google.open_by_key('1WA5GjT1f-jpQ4Sw_OfvXBERyz5MehfH7uaFrIfUMrtw')
         
         # ==============================================================================
-        # NOVO: RECUPERANDO A BASE DE MINUTOS DO APC FULL
+        # 0. RECUPERANDO A BASE DE MINUTOS (APC FULL)
         # ==============================================================================
         apc_full_dict = {}
         try:
             try:
-                # Tenta ler do Google Sheets primeiro (Recomendado: Crie uma aba "APC_FULL")
                 ws_apc = planilha_principal.worksheet("APC_FULL")
                 dados_apc = ws_apc.get_all_values()
                 if len(dados_apc) > 1:
                     for row in dados_apc[1:]:
-                        fornecedor_apc = str(row[0]).strip().upper()
-                        minutos_apc = pd.to_numeric(row[1], errors='coerce')
-                        if pd.notna(minutos_apc):
-                            apc_full_dict[fornecedor_apc] = minutos_apc
+                        apc_full_dict[str(row[0]).strip().upper()] = pd.to_numeric(row[1], errors='coerce')
             except:
-                # Se não achar a aba no Sheets, tenta ler o arquivo Apcfull.csv do GitHub
-                df_apc = pd.read_csv('Apcfull.csv', sep=None, engine='python') 
-                for _, row in df_apc.iterrows():
-                    fornecedor_apc = str(row.iloc[0]).strip().upper()
-                    minutos_apc = pd.to_numeric(row.iloc[1], errors='coerce')
-                    if pd.notna(minutos_apc):
-                        apc_full_dict[fornecedor_apc] = minutos_apc
-        except Exception as e:
-            pass # Se não encontrar base de APC FULL em lugar nenhum, ignora (vai usar 60)
-
+                df_apc_csv = pd.read_csv('Apcfull.csv', sep=None, engine='python') 
+                for _, row in df_apc_csv.iterrows():
+                    apc_full_dict[str(row.iloc[0]).strip().upper()] = pd.to_numeric(row.iloc[1], errors='coerce')
+        except: pass
 
         # ==============================================================================
         # 1. ABA CONSOLIDADO
@@ -154,20 +144,25 @@ def carregar_dados():
             df['Agenda_Texto'] = df['Agenda']
             df['Canal'] = df['Agenda_Texto'].apply(lambda x: 'Fulfillment' if len(x) >= 6 else '1P Fornecedor')
 
-            # --- O CÁLCULO DE TEMPO (AGORA COM OS MINUTOS DO FULL) ---
+            # --- CÁLCULO DE TEMPO: APROXIMAÇÃO + TRAVA ANTI-BUG (> 300) ---
             def calcular_minutos(row):
                 canal = row.get('Canal', '')
-                fornecedor = str(row.get('Fornecedor', '')).strip().upper()
+                forn_original = str(row.get('Fornecedor', '')).strip().upper()
                 
-                if canal == 'Fulfillment': 
-                    # Se achar o fornecedor na base, puxa o tempo real. Se não achar, joga 60 padrão!
-                    return apc_full_dict.get(fornecedor, 60.0)
+                if canal == 'Fulfillment':
+                    for chave_forn, tempo in apc_full_dict.items():
+                        if chave_forn in forn_original:
+                            # SE FOR MAIOR QUE 300 MINUTOS É BUG, PULA PARA 60
+                            if tempo > 300:
+                                return 60.0
+                            return tempo
+                    return 60.0
                 else:
                     linhas = str(row.get('Linhas', '')).upper().split(',')
                     maior_tempo = 0 
                     for l in linhas:
                         t = 90
-                        if 'MADEIRA' in l: t = 180 if 'TUBRAX' in fornecedor else 427
+                        if 'MADEIRA' in l: t = 180 if 'TUBRAX' in forn_original else 427
                         elif 'PNEU' in l: t = 240
                         elif 'TRANSFERENCIA RUIM' in l: t = 40
                         elif 'TRANSFERENCIA' in l: t = 240
@@ -181,7 +176,9 @@ def carregar_dados():
             
             df['Tempo_APC_Minutos'] = df.apply(calcular_minutos, axis=1)
 
+        # ==============================================================================
         # 2. ABA ITEM AGENDA
+        # ==============================================================================
         try:
             ws_itens = planilha_principal.worksheet("Item Agenda")
             dados_itens = ws_itens.get_all_values()
@@ -206,7 +203,9 @@ def carregar_dados():
                 if 'Agenda' in df_itens.columns: df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.split('.').str[0].str.strip()
         except: pass 
 
+        # ==============================================================================
         # 3. ABA PLANEJAMENTO
+        # ==============================================================================
         try:
             ws_plan = planilha_principal.worksheet("PLANEJAMENTO")
             dados_plan = ws_plan.get_all_values()
