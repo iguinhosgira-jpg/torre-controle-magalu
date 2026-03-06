@@ -64,7 +64,7 @@ def conectar_google():
     
     return gspread.authorize(creds)
 
-# --- EXTRAÇÃO DE DADOS ---
+# --- EXTRAÇÃO DE DADOS (MULTIPLAS PLANILHAS & AGRUPAMENTOS) ---
 @st.cache_data(ttl=300)
 def carregar_dados():
     df = pd.DataFrame()
@@ -270,7 +270,7 @@ def carregar_dados():
         except: pass 
 
         # ==============================================================================
-        # 4. PLANILHA DE TRANSFERÊNCIAS (LENDO A COLUNA V - POSIÇÃO 21)
+        # 4. PLANILHA DE TRANSFERÊNCIAS
         # ==============================================================================
         try:
             planilha_transf = cliente_google.open_by_key('1PMgqjZr2nieniRShicaPyxAe6J6j7I04FFE5aNWnm_s')
@@ -312,7 +312,7 @@ st.sidebar.image("https://magalog.com.br/opengraph-image.jpg?fdd536e7d35ec9da", 
 st.sidebar.markdown("<br>", unsafe_allow_html=True)
 
 st.sidebar.header("📍 Menu de Navegação")
-pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "🧩 Planejamento Lego", "🚛 Transferência", "📝 Solicitações Extras"])
+pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "🧩 Planejamento Lego", "🚛 Histórico325", "📝 Solicitações Extras"])
 st.sidebar.markdown("---")
 
 st.sidebar.header("📅 Período de Análise")
@@ -334,7 +334,6 @@ datas_selecionadas = st.sidebar.date_input(
 if len(datas_selecionadas) == 2: data_inicio, data_fim = datas_selecionadas
 else: data_inicio = data_fim = datas_selecionadas[0]
 
-# --- CORREÇÃO DO ERRO DE TYPE ERROR: Convertendo datas para o padrão Pandas Timestamp ---
 ts_inicio = pd.to_datetime(data_inicio)
 ts_fim = pd.to_datetime(data_fim)
 
@@ -342,7 +341,6 @@ ts_fim = pd.to_datetime(data_fim)
 # PÁGINA 1: PAINEL OPERACIONAL
 # ==============================================================================
 if pagina == "🏠 Painel Operacional":
-    # Uso do ts_inicio e ts_fim em vez do .dt.date
     df_filtrado = df[(df['Data'] >= ts_inicio) & (df['Data'] <= ts_fim)]
     
     st.sidebar.markdown("---")
@@ -427,7 +425,6 @@ if pagina == "🏠 Painel Operacional":
             fig_1p.update_layout(xaxis=dict(tickformat="%d/%m/%Y"), showlegend=False, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig_1p, use_container_width=True)
             
-            # --- Tabela de Exceções Blindada usando Timestamp ---
             if not df_excecoes.empty and 'Data da Vaga' in df_excecoes.columns:
                 df_ex_filtro = df_excecoes[(df_excecoes['Data da Vaga'] >= ts_inicio) & (df_excecoes['Data da Vaga'] <= ts_fim)].copy()
                 if not df_ex_filtro.empty:
@@ -539,7 +536,6 @@ if pagina == "🏠 Painel Operacional":
 elif pagina == "🧩 Planejamento Lego":
     st.title("🧩 Visão planejamento capacidade LEGO")
 
-    # Tratamento com ts_inicio e ts_fim
     df_plan_filtrado = df_plan[(df_plan['data'] >= ts_inicio) & (df_plan['data'] <= ts_fim)].copy() if not df_plan.empty else pd.DataFrame()
 
     if not df_plan.empty:
@@ -550,8 +546,9 @@ elif pagina == "🧩 Planejamento Lego":
         df_base_categorias = pd.DataFrame({'CATEGORIA': categorias_existentes})
         
         try:
-            planilha = conectar_google_sheets()
-            ws_metas = planilha.worksheet("METAS_LEGO")
+            cliente_google = conectar_google()
+            planilha_principal = cliente_google.open_by_key('1WA5GjT1f-jpQ4Sw_OfvXBERyz5MehfH7uaFrIfUMrtw')
+            ws_metas = planilha_principal.worksheet("METAS_LEGO")
             dados_salvos = ws_metas.get_all_values()
             
             if dados_salvos and len(dados_salvos) > 1:
@@ -579,9 +576,10 @@ elif pagina == "🧩 Planejamento Lego":
                     df_para_salvar['LEGO (Meta)'] = df_para_salvar['LEGO (Meta)'].astype(str)
                     dados_finais = [df_para_salvar.columns.tolist()] + df_para_salvar.values.tolist()
 
-                    planilha = conectar_google_sheets()
-                    try: ws_metas = planilha.worksheet("METAS_LEGO")
-                    except: ws_metas = planilha.add_worksheet(title="METAS_LEGO", rows="100", cols="2")
+                    cliente_google = conectar_google()
+                    ws_principal = cliente_google.open_by_key('1WA5GjT1f-jpQ4Sw_OfvXBERyz5MehfH7uaFrIfUMrtw')
+                    try: ws_metas = ws_principal.worksheet("METAS_LEGO")
+                    except: ws_metas = ws_principal.add_worksheet(title="METAS_LEGO", rows="100", cols="2")
                         
                     ws_metas.clear() 
                     try: ws_metas.update(values=dados_finais, range_name="A1")
@@ -681,11 +679,10 @@ elif pagina == "🧩 Planejamento Lego":
 # ==============================================================================
 # PÁGINA 3: HISTÓRICO 325 (TRANSFERÊNCIAS)
 # ==============================================================================
-elif pagina == "🚛 Transferência":
-    st.title("🚛 Visão de Transferências | Transferência")
+elif pagina == "🚛 Histórico325":
+    st.title("🚛 Visão de Transferências | Histórico325")
     
     if not df_transf.empty:
-        # Tratamento com ts_inicio e ts_fim para blindar contra NaT (Not a Time)
         df_transf_periodo = df_transf[(df_transf['DATA_FILTRO'] >= ts_inicio) & (df_transf['DATA_FILTRO'] <= ts_fim)].copy()
 
         st.sidebar.markdown("---")
@@ -725,7 +722,7 @@ elif pagina == "🚛 Transferência":
                 'DATA_PRODUCAO': 'Data Produção',
                 'LIBERACAO': 'Liberação Orig.',
                 'CD_ORIGEM': 'CD Origem',
-                'DATA_ENTREGA': 'Dt. Entrega Cliente',
+                'DATA_ENTREGA': 'DATA ENTREGA',
                 'MODALIDADE': 'Modalidade',
                 'SKUS': 'Skus',
                 'PECAS': 'Peças',
@@ -793,8 +790,8 @@ elif pagina == "📝 Solicitações Extras":
                 st.error("⚠️ Por favor, preencha o Fornecedor e o Solicitante.")
             else:
                 try:
-                    planilha = conectar_google()
-                    ws_principal = planilha.open_by_key('1WA5GjT1f-jpQ4Sw_OfvXBERyz5MehfH7uaFrIfUMrtw')
+                    cliente_google = conectar_google()
+                    ws_principal = cliente_google.open_by_key('1WA5GjT1f-jpQ4Sw_OfvXBERyz5MehfH7uaFrIfUMrtw')
                     
                     try:
                         ws_excecoes = ws_principal.worksheet("EXCECOES_1P")
@@ -824,5 +821,3 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
-
-
