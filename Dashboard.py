@@ -270,7 +270,7 @@ def carregar_dados():
         except: pass 
 
         # ==============================================================================
-        # 4. PLANILHA DE TRANSFERÊNCIAS
+        # 4. PLANILHA DE TRANSFERÊNCIAS 
         # ==============================================================================
         try:
             planilha_transf = cliente_google.open_by_key('1PMgqjZr2nieniRShicaPyxAe6J6j7I04FFE5aNWnm_s')
@@ -713,9 +713,11 @@ elif pagina == "🚛 Histórico325":
             ).reset_index()
 
             resumo_tabela['CD_ORIGEM'] = 'CD ' + resumo_tabela['CD_ORIGEM'].astype(str)
+            
+            # --- CORREÇÃO DO INVERSOR DE DATAS ---
             for col in ['DATA_PRODUCAO', 'LIBERACAO', 'DATA_ENTREGA', 'DATA_CD']:
                 if col in resumo_tabela.columns:
-                    resumo_tabela[col] = pd.to_datetime(resumo_tabela[col], errors='coerce').dt.strftime('%d/%m/%Y').fillna('-')
+                    resumo_tabela[col] = pd.to_datetime(resumo_tabela[col], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y').fillna('-')
             
             resumo_tabela = resumo_tabela.rename(columns={
                 'ID_CARGA_PCP': 'ID2900 (Carga)',
