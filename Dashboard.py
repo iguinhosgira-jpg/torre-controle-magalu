@@ -312,7 +312,7 @@ st.sidebar.image("https://magalog.com.br/opengraph-image.jpg?fdd536e7d35ec9da", 
 st.sidebar.markdown("<br>", unsafe_allow_html=True)
 
 st.sidebar.header("📍 Menu de Navegação")
-pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "🧩 Planejamento Lego", "🚛 Histórico325", "📝 Solicitações Extras"])
+pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "⚖️ Prova de Sobrecarga", "🧩 Planejamento Lego", "🚛 Histórico325", "📝 Solicitações Extras"])
 st.sidebar.markdown("---")
 
 st.sidebar.header("📅 Período de Análise")
@@ -529,9 +529,112 @@ if pagina == "🏠 Painel Operacional":
             st.warning("Base de Itens indisponível.")
     else: st.success("✅ A operação fluiu sem gargalos no período analisado!")
 
+# ==============================================================================
+# NOVA PÁGINA: PROVA DE SOBRECARGA (COMERCIAL)
+# ==============================================================================
+elif pagina == "⚖️ Prova de Sobrecarga":
+    st.title("⚖️ Análise de Viabilidade: Modelo de Capacidade")
+    st.markdown("Esta visão demonstra de forma matemática e visual por que o modelo de **6 equipes simultâneas** é insustentável perante o modelo de malha proposto pela companhia (5 Transferências + 2 Madeiras). O objetivo é provar para o Comercial e Planejamento que uma equipe residual (`Equipe 6`) não comporta fisicamente toda a carteira de fornecedores Misto/1P/Fulfillment.")
+    
+    # Filtra os dias disponíveis no banco de dados
+    dias_disponiveis = sorted(df[df['Data'].notna()]['Data'].dt.strftime('%d/%m/%Y').unique())
+    
+    if dias_disponiveis:
+        st.sidebar.markdown("---")
+        st.sidebar.header("⚙️ Simulação Diária")
+        dia_simulacao = st.sidebar.selectbox("Escolha um dia da sua operação para simular:", dias_disponiveis)
+        
+        df_simulacao = df[df['Data'].dt.strftime('%d/%m/%Y') == dia_simulacao].copy()
+        
+        cargas_alocadas = []
+        
+        # 1. Alocar Transferências Fixas (Premissa do modelo: 5 Transf de 240min)
+        data_obj = pd.to_datetime(dia_simulacao, format='%d/%m/%Y')
+        if data_obj.weekday() < 5:  # Considera transferências nos dias de semana
+            for i in range(5):
+                eq_num = 1 + (i % 3) # Distribui as 5 cargas entre a Equipe 1, 2 e 3
+                cargas_alocadas.append({
+                    'Equipe': f'Equipe {eq_num} 👷',
+                    'Tipo Carga': 'Transferência Fixa (240m)',
+                    'Minutos': 240,
+                    'Detalhe': f'Transf CD Origem {i+1}'
+                })
+        
+        # 2. Alocar Madeiras Reais (Equipes 4 e 5) e Restante (Equipe 6)
+        eq_madeira_atual = 4
+        for _, row in df_simulacao.iterrows():
+            minutos = row['Tempo_APC_Minutos']
+            linhas = str(row['Linhas']).upper()
+            fornecedor = str(row['Fornecedor']).strip().title()
+            
+            if 'MADEIRA' in linhas and row.get('Pecas_Madeira', 0) > 10:
+                cargas_alocadas.append({
+                    'Equipe': f'Equipe {eq_madeira_atual} 👷',
+                    'Tipo Carga': 'Carga Madeira',
+                    'Minutos': minutos,
+                    'Detalhe': f'Madeira: {fornecedor[:15]}'
+                })
+                eq_madeira_atual = 5 if eq_madeira_atual == 4 else 4
+            else:
+                tipo = 'Carga Fulfillment' if row['Canal'] == 'Fulfillment' else 'Carga 1P/Misto'
+                cargas_alocadas.append({
+                    'Equipe': 'Equipe 6 🥵 (Sobra)',
+                    'Tipo Carga': tipo,
+                    'Minutos': minutos,
+                    'Detalhe': fornecedor[:15]
+                })
+                
+        df_mochila = pd.DataFrame(cargas_alocadas)
+        
+        if not df_mochila.empty:
+            # Ordena as equipes para aparecerem bonitinhas de 1 a 6 no gráfico
+            df_mochila = df_mochila.sort_values(by="Equipe")
+            
+            # --- KPIs DA SIMULAÇÃO ---
+            eq_6 = df_mochila[df_mochila['Equipe'] == 'Equipe 6 🥵 (Sobra)']
+            min_eq_6 = eq_6['Minutos'].sum()
+            cargas_eq_6 = len(eq_6)
+            sobrecarga_eq_6 = min_eq_6 - 427
+            
+            st.markdown("---")
+            col_s1, col_s2, col_s3 = st.columns(3)
+            with col_s1: exibir_kpi("Cargas Jogadas para a Equipe 6", cargas_eq_6, "Agendas de 1P/Full", "#9B59B6")
+            with col_s2: exibir_kpi("Tempo Exigido da Equipe 6", f"{int(min_eq_6)} min", "Tempo na doca", "#E74C3C")
+            with col_s3: exibir_kpi("Estouro Real de Turno", f"+{int(max(0, sobrecarga_eq_6))} min", f"Capacidade era 427m", "#E74C3C")
+
+            # --- GRÁFICO MOCHILA ESTOURADA ---
+            fig_mochila = px.bar(
+                df_mochila, 
+                x='Equipe', 
+                y='Minutos', 
+                color='Tipo Carga',
+                text='Detalhe',
+                title=f"Distribuição Real vs Capacidade Máxima - Dia {dia_simulacao}",
+                color_discrete_map={
+                    'Transferência Fixa (240m)': '#8E44AD', 
+                    'Carga Madeira': '#E67E22', 
+                    'Carga Fulfillment': '#3498DB', 
+                    'Carga 1P/Misto': '#2ECC71'
+                }
+            )
+            
+            # A linha vermelha que prova o ponto
+            fig_mochila.add_hline(y=427, line_dash="solid", line_width=3, line_color="#E74C3C", annotation_text="Capacidade Máxima do Turno (427 min)", annotation_position="top left", annotation_font_color="#E74C3C")
+            
+            fig_mochila.update_traces(textposition='inside', insidetextanchor='middle')
+            fig_mochila.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', yaxis_title="Tempo Necessário (Minutos)", height=600)
+            
+            st.plotly_chart(fig_mochila, use_container_width=True)
+            
+            st.info("💡 **Argumento Comercial:** Observe como a alocação de Transferências e Madeiras esgota a capacidade de 5 equipes inteiras. A 'Sobra' de agendas mistas cai inteiramente sobre a Equipe 6, exigindo que eles trabalhem o equivalente a 3 ou 4 turnos no mesmo dia para descarregar o volume planejado pelo sistema.")
+        else:
+            st.warning("Nenhuma carga encontrada para o dia selecionado.")
+    else:
+        st.warning("Não há dados carregados para gerar a simulação.")
+
 
 # ==============================================================================
-# PÁGINA 2: MATRIZ DE PLANEJAMENTO (S&OP COMERCIAL)
+# PÁGINA 3: MATRIZ DE PLANEJAMENTO (S&OP COMERCIAL)
 # ==============================================================================
 elif pagina == "🧩 Planejamento Lego":
     st.title("🧩 Visão planejamento capacidade LEGO")
@@ -677,7 +780,7 @@ elif pagina == "🧩 Planejamento Lego":
 
 
 # ==============================================================================
-# PÁGINA 3: HISTÓRICO 325 (TRANSFERÊNCIAS)
+# PÁGINA 4: HISTÓRICO 325 (TRANSFERÊNCIAS)
 # ==============================================================================
 elif pagina == "🚛 Histórico325":
     st.title("🚛 Visão de Transferências | Histórico325")
@@ -713,8 +816,6 @@ elif pagina == "🚛 Histórico325":
             ).reset_index()
 
             resumo_tabela['CD_ORIGEM'] = 'CD ' + resumo_tabela['CD_ORIGEM'].astype(str)
-            
-            # --- CORREÇÃO DO INVERSOR DE DATAS ---
             for col in ['DATA_PRODUCAO', 'LIBERACAO', 'DATA_ENTREGA', 'DATA_CD']:
                 if col in resumo_tabela.columns:
                     resumo_tabela[col] = pd.to_datetime(resumo_tabela[col], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y').fillna('-')
@@ -768,7 +869,7 @@ elif pagina == "🚛 Histórico325":
         st.warning("⚠️ Planilha de Transferências não carregou. O e-mail do robô está como Leitor nela?")
 
 # ==============================================================================
-# PÁGINA 4: REGISTRO DE SOLICITAÇÕES EXTRAS (NOVA)
+# PÁGINA 5: REGISTRO DE SOLICITAÇÕES EXTRAS
 # ==============================================================================
 elif pagina == "📝 Solicitações Extras":
     st.title("📝 Registro de Vagas Extras 1P")
