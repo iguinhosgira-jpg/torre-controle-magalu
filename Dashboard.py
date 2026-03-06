@@ -550,12 +550,12 @@ elif pagina == "⚖️ Prova de Sobrecarga":
         tempo_equipes = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
         
         nomes_equipes = {
-            1: 'Equipe 1 👷 (Transf)',
-            2: 'Equipe 2 👷 (Transf)',
-            3: 'Equipe 3 👷 (Transf)',
+            1: 'Dayner 👷 (Transf)',
+            2: 'Ingrid 👷 (Transf)',
+            3: 'Efrain 👷 (Transf Full)',
             4: 'Equipe 4 👷 (Madeira)',
             5: 'Equipe 5 👷 (Madeira)',
-            6: 'Equipe 6 🥵 (Misto/Sobra)'
+            6: 'Equipe 6 👷 (Misto)'
         }
         
         cargas_alocadas = []
@@ -958,3 +958,4 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
+
