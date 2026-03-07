@@ -312,7 +312,7 @@ st.sidebar.image("https://magalog.com.br/opengraph-image.jpg?fdd536e7d35ec9da", 
 st.sidebar.markdown("<br>", unsafe_allow_html=True)
 
 st.sidebar.header("📍 Menu de Navegação")
-pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "⚖️ Prova de Sobrecarga", "🧩 Planejamento Lego", "🚛 Transferências", "📝 Solicitações Extras"])
+pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "👷 Simulador Mão de Obra", "🧩 Planejamento Lego", "🚛 Transferências", "📝 Solicitações Extras"])
 st.sidebar.markdown("---")
 
 st.sidebar.header("📅 Período de Análise")
@@ -533,7 +533,7 @@ if pagina == "🏠 Painel Operacional":
 # ==============================================================================
 # NOVA PÁGINA: PROVA DE SOBRECARGA (COMERCIAL)
 # ==============================================================================
-elif pagina == "⚖️ Prova de Sobrecarga":
+elif pagina == "👷 Simulador Mão de Obra":
     st.title("⚖️ Análise de Viabilidade (Comercial)")
     st.markdown("Esta visão demonstra de forma algorítmica que, mesmo **equalizando perfeitamente** todas as docas e utilizando 100% da ociosidade das equipes, o volume de carga agendado pode exceder a capacidade física diária (427 minutos por equipe).")
     
@@ -961,6 +961,7 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
+
 
 
 
