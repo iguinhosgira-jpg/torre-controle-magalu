@@ -663,7 +663,6 @@ elif pagina == "⚖️ Prova de Sobrecarga":
             
             st.plotly_chart(fig_mochila, use_container_width=True)
             
-            st.info(f"💡 **Argumento Comercial:** Alterando o volume para {total_equipes} equipes, o algoritmo distribuiu de forma inteligente as Transferências e Madeiras. Todo o espaço ocioso restante foi preenchido com cargas convencionais. Se as colunas ultrapassam a linha vermelha, significa que o volume absoluto planejado é fisicamente incompatível com o headcount disponível.")
         else:
             st.warning("Nenhuma carga encontrada para o dia selecionado.")
     else:
@@ -962,5 +961,6 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
+
 
 
