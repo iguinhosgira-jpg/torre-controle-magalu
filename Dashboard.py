@@ -534,8 +534,8 @@ if pagina == "🏠 Painel Operacional":
 # NOVA PÁGINA: PROVA DE SOBRECARGA (COMERCIAL)
 # ==============================================================================
 elif pagina == "👷 Simulador Mão de Obra":
-    st.title("⚖️ Análise de Viabilidade (Comercial)")
-    st.markdown("Esta visão demonstra de forma algorítmica que, mesmo **equalizando perfeitamente** todas as docas e utilizando 100% da ociosidade das equipes, o volume de carga agendado pode exceder a capacidade física diária (427 minutos por equipe).")
+    st.title("⚖️ Análise de Mão de obra")
+    st.markdown("Esta visão simula o cenário do dia selecionado, com a quantidade de equipes disponíveis para o dia considerando (427 minutos por equipe).")
     
     dias_disponiveis = sorted(df[df['Data'].notna()]['Data'].dt.strftime('%d/%m/%Y').unique())
     
@@ -961,6 +961,7 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
+
 
 
 
