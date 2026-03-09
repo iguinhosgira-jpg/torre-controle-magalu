@@ -102,8 +102,7 @@ def carregar_dados():
                 df_excecoes.columns = df_excecoes.columns.str.strip() 
                 if 'Data da Vaga' in df_excecoes.columns:
                     df_excecoes['Data da Vaga'] = pd.to_datetime(df_excecoes['Data da Vaga'], dayfirst=True, errors='coerce').dt.normalize()
-        except: 
-            pass
+        except: pass
 
         # ==============================================================================
         # 1. ABA CONSOLIDADO
@@ -192,7 +191,7 @@ def carregar_dados():
                             t = 90
                             if 'MADEIRA' in l: 
                                 if row.get('Pecas_Madeira', 0) > 10:
-                                    t = 110 if 'TUBRAX' in forn_original else 427
+                                    t = 180 if 'TUBRAX' in forn_original else 427
                                 else:
                                     t = 90
                             elif 'PNEU' in l: t = 240
@@ -212,128 +211,56 @@ def carregar_dados():
             
             df['Tempo_APC_Minutos'] = df.apply(calcular_minutos, axis=1)
 
-# ==============================================================================
-# NOVA PÁGINA: PREVISÃO DE AGENDAS (CENÁRIO)
-# ==============================================================================
-elif pagina == "📅 Previsão de Agendas":
-    st.title("📅 Previsão de Agendas (Cenário)")
-    st.markdown(f"**Cenário Projetado para o período:** {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
-    st.caption("💡 *Dica: Selecione a data de amanhã no filtro lateral para ter a visão exata do planejamento do próximo dia.*")
-    
-    # --- PREPARAÇÃO DE DADOS (CORREÇÃO DO ERRO DE ESCOPO AQUI) ---
-    df_filtrado_prev = df[(df['Data'] >= ts_inicio) & (df['Data'] <= ts_fim)].copy() if not df.empty else pd.DataFrame()
-    
-    if not df_filtrado_prev.empty:
-        df_1p_prev = df_filtrado_prev[df_filtrado_prev['Canal'] == '1P Fornecedor']
-        df_full_prev = df_filtrado_prev[df_filtrado_prev['Canal'] == 'Fulfillment']
-    else:
-        df_1p_prev = pd.DataFrame()
-        df_full_prev = pd.DataFrame()
+        # ==============================================================================
+        # 2. ABA ITEM AGENDA (1P E FULFILLMENT)
+        # ==============================================================================
+        df_itens_1p = pd.DataFrame()
+        df_itens_full = pd.DataFrame()
 
-    df_transf_prev = pd.DataFrame()
-    if not df_transf.empty and 'DATA_FILTRO' in df_transf.columns:
-        df_transf_prev = df_transf[(df_transf['DATA_FILTRO'] >= ts_inicio) & (df_transf['DATA_FILTRO'] <= ts_fim)].copy()
-    
-    # --- KPIs GLOBAIS ---
-    total_agendas = df_filtrado_prev['Agenda_Texto'].nunique() if not df_filtrado_prev.empty else 0
-    total_cargas_transf = df_transf_prev['ID_CARGA_PCP'].nunique() if not df_transf_prev.empty and 'ID_CARGA_PCP' in df_transf_prev.columns else 0
-    total_veiculos = total_agendas + total_cargas_transf
-    
-    total_pecas_op = df_filtrado_prev['Qtd Peças'].sum() if not df_filtrado_prev.empty else 0
-    total_pecas_transf = df_transf_prev['QTDE'].sum() if not df_transf_prev.empty and 'QTDE' in df_transf_prev.columns else 0
-    total_pecas_geral = total_pecas_op + total_pecas_transf
-    
-    min_op = df_filtrado_prev['Tempo_APC_Minutos'].sum() if not df_filtrado_prev.empty else 0
-    min_fixo = 1200 if pd.to_datetime(data_inicio).weekday() < 5 else 0 
-    eq_projetadas = math.ceil((min_op + min_fixo) / 427)
-    
-    col_k1, col_k2, col_k3, col_k4 = st.columns(4)
-    with col_k1: exibir_kpi("Equipes Necessárias", eq_projetadas, "Projeção APC", "#E74C3C")
-    with col_k2: exibir_kpi("Veículos Esperados", total_veiculos, f"{total_agendas} Agendas + {total_cargas_transf} Transf.", "#3498DB")
-    with col_k3: exibir_kpi("Volume Físico (Peças)", f"{total_pecas_geral:,.0f}".replace(',', '.'), "1P + Full + Transf", "#9B59B6")
-    with col_k4: exibir_kpi("Agendas de Full", df_full_prev['Agenda_Texto'].nunique() if not df_full_prev.empty else 0, "Cargas Seller", "#F39C12")
+        try:
+            ws_itens = planilha_principal.worksheet("Item Agenda")
+            dados_itens = ws_itens.get_all_values()
+            if dados_itens and len(dados_itens) > 1:
+                df_itens_1p = pd.DataFrame(dados_itens[1:], columns=dados_itens[0])
+                df_itens_1p = df_itens_1p.loc[:, ~df_itens_1p.columns.duplicated()]
+                df_itens_1p.columns = df_itens_1p.columns.str.strip().str.upper()
+                
+                map_itens = {}
+                alvos_itens = set()
+                for c in df_itens_1p.columns:
+                    if 'AGENDA' in c and 'Agenda' not in alvos_itens: map_itens[c] = 'Agenda'; alvos_itens.add('Agenda')
+                    elif ('SKU' in c or 'COMPITEM' in c or 'CÓDIGO' in c) and 'SKU' not in alvos_itens: map_itens[c] = 'SKU'; alvos_itens.add('SKU')
+                    elif ('DESCRI' in c or 'PRODUTO' in c) and 'Descrição' not in alvos_itens: map_itens[c] = 'Descrição'; alvos_itens.add('Descrição')
+                    elif 'LINHA' in c and 'Linhas' not in alvos_itens: map_itens[c] = 'Linhas'; alvos_itens.add('Linhas')
+                    elif 'CATEGORIA' in c and 'Categoria' not in alvos_itens: map_itens[c] = 'Categoria'; alvos_itens.add('Categoria')
+                    elif ('PEÇA' in c or 'PECA' in c or 'QTCOMP' in c) and 'Qtd Peças' not in alvos_itens: map_itens[c] = 'Qtd Peças'; alvos_itens.add('Qtd Peças')
+                
+                df_itens_1p = df_itens_1p.rename(columns=map_itens)
+        except: pass 
 
-    st.markdown("---")
-    
-    # --- VISÃO EM 3 COLUNAS (INSPIRADO NO PRINT) ---
-    col_1p, col_seller, col_transf = st.columns(3)
-    
-    # Função Mágica para criar as tabelas com barra de progresso embutida
-    def formatar_tabela_barras(df_agrupado, col_agrupamento, cor_barra):
-        if df_agrupado.empty: 
-            st.info("Sem dados para este canal.")
-            return
-        
-        df_show = df_agrupado.groupby(col_agrupamento).agg(
-            Agendas=('Agenda_Texto', 'nunique'),
-            SKUs=('Qtd SKUs', 'sum'),
-            Peças=('Qtd Peças', 'sum')
-        ).reset_index().sort_values(by='Peças', ascending=False)
-        
-        max_pecas = float(df_show['Peças'].max()) if not df_show.empty else 100.0
-        
-        st.dataframe(
-            df_show,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Peças": st.column_config.ProgressColumn(
-                    "Peças Real", format="%.0f", min_value=0, max_value=max_pecas
-                ),
-                col_agrupamento: st.column_config.TextColumn(col_agrupamento.upper())
-            }
-        )
-    
-    # 1. COLUNA 1P FORNECEDOR
-    with col_1p:
-        st.markdown("<h4 style='color: #0086FF; margin-bottom: 0px;'>📦 AGENDAS 1P</h4>", unsafe_allow_html=True)
-        st.caption("Detalhamento de Fornecedores Tradicionais")
-        
-        st.markdown("**1P (CATEGORIA)**")
-        formatar_tabela_barras(df_1p_prev, 'Linhas', '#0086FF')
-        
-        st.markdown("**1P (FORNECEDOR)**")
-        formatar_tabela_barras(df_1p_prev, 'Fornecedor', '#0086FF')
-        
-    # 2. COLUNA SELLER / FULLFILLMENT
-    with col_seller:
-        st.markdown("<h4 style='color: #F39C12; margin-bottom: 0px;'>🛍️ AGENDAS SELLER</h4>", unsafe_allow_html=True)
-        st.caption("Detalhamento de Fulfillment / MktPlace")
-        
-        st.markdown("**SELLER (CATEGORIA)**")
-        formatar_tabela_barras(df_full_prev, 'Linhas', '#F39C12')
-        
-        st.markdown("**SELLER (FORNECEDOR)**")
-        formatar_tabela_barras(df_full_prev, 'Fornecedor', '#F39C12')
-        
-    # 3. COLUNA TRANSFERÊNCIAS
-    with col_transf:
-        st.markdown("<h4 style='color: #9B59B6; margin-bottom: 0px;'>🚛 AGENDAS TRANSFERÊNCIA</h4>", unsafe_allow_html=True)
-        st.caption("Detalhamento de Malha / CD a CD")
-        
-        if not df_transf_prev.empty and 'ID_CARGA_PCP' in df_transf_prev.columns:
-            # Transferência por Modalidade
-            st.markdown("**TRANSFERÊNCIA (MODALIDADE)**")
-            df_t_modal = df_transf_prev.groupby('MODAL2').agg(
-                Cargas=('ID_CARGA_PCP', 'nunique'),
-                SKUs=('PRODUTO', 'nunique') if 'PRODUTO' in df_transf_prev.columns else ('ID_CARGA_PCP', 'count'),
-                Peças=('QTDE', 'sum')
-            ).reset_index().sort_values(by='Peças', ascending=False)
-            
-            max_t_pecas = float(df_t_modal['Peças'].max()) if not df_t_modal.empty else 100.0
-            
-            st.dataframe(
-                df_t_modal.rename(columns={'MODAL2': 'Modalidade'}),
-                use_container_width=True, hide_index=True,
-                column_config={"Peças": st.column_config.ProgressColumn("Peças Real", format="%.0f", min_value=0, max_value=max_t_pecas)}
-            )
-            
-            # Transferência por ID de Carga
-            st.markdown("**TRANSFERÊNCIA (ID DA CARGA)**")
-            df_t_id = df_transf_prev.groupby('ID_CARGA_PCP').agg(
-                Origem=('CD_EMPRESA', 'first') if 'CD_EMPRESA' in df_transf_prev.columns else ('ID_CARGA_PCP', 'first'),
-                Modalidade=('MODAL2', 'first') if 'MODAL2' in df_transf_prev.columns else ('ID_CARGA_PCP', 'first'),
-                SKUs
+        try:
+            ws_itens_full = planilha_principal.worksheet("Item Agenda Seller")
+            dados_itens_full = ws_itens_full.get_all_values()
+            if dados_itens_full and len(dados_itens_full) > 1:
+                df_itens_full = pd.DataFrame(dados_itens_full[1:], columns=dados_itens_full[0])
+                df_itens_full = df_itens_full.loc[:, ~df_itens_full.columns.duplicated()]
+                df_itens_full.columns = df_itens_full.columns.str.strip().str.upper()
+                
+                map_full = {
+                    'CODAGENDA': 'Agenda',
+                    'ITEM': 'SKU',
+                    'DESCRIÇÃO SKU': 'Descrição',
+                    'LINHA': 'Linhas',
+                    'ITEMS.LIST.ELEMENT.CATEGORY.FAMILY.NAME': 'Categoria',
+                    'QTAGENDA': 'Qtd Peças'
+                }
+                df_itens_full = df_itens_full.rename(columns=lambda x: map_full.get(x, x))
+        except: pass
+
+        df_itens = pd.concat([df_itens_1p, df_itens_full], ignore_index=True)
+        if not df_itens.empty and 'Agenda' in df_itens.columns:
+            df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.split('.').str[0].str.strip()
+
         # ==============================================================================
         # 3. ABA PLANEJAMENTO
         # ==============================================================================
@@ -407,12 +334,12 @@ st.sidebar.image("https://magalog.com.br/opengraph-image.jpg?fdd536e7d35ec9da", 
 st.sidebar.markdown("<br>", unsafe_allow_html=True)
 
 st.sidebar.header("📍 Menu de Navegação")
-pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "📅 Previsão de Agendas", "⚖️ Prova de Sobrecarga", "🧩 Planejamento Lego", "🚛 Histórico325", "📝 Solicitações Extras"])
+pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "📅 Previsão de Agendas", "👷 Simulador Mão de Obra", "🧩 Planejamento Lego", "🚛 Transferências", "📝 Solicitações Extras"])
 st.sidebar.markdown("---")
 
 if st.sidebar.button("🔄 Atualizar Dados Agora", use_container_width=True):
-    st.cache_data.clear() # Isso limpa a memória de 5 minutos
-    st.rerun() # Isso faz o painel piscar e buscar tudo de novo
+    st.cache_data.clear()
+    st.rerun()
 
 st.sidebar.header("📅 Período de Análise")
 
@@ -585,9 +512,6 @@ if pagina == "🏠 Painel Operacional":
         with met_col3: exibir_kpi("🚨 H.E. Projetadas", f"{dados_apc_dia['Horas_Extras']} h", f"Custo: {formatar_moeda(dados_apc_dia['Custo_HE'])}", "#E74C3C")
         with met_col4: exibir_kpi("Volume de Peças", f"{df_dia_critico['Qtd Peças'].sum():,.0f}".replace(',', '.'), "Físico", "#9B59B6")
         
-        # ====================================================================
-        # TABELA DE AGENDAS INTERATIVA 
-        # ====================================================================
         col_chart, col_tab = st.columns([1, 2])
         with col_chart:
             fig_canais = px.pie(df_dia_critico.groupby('Canal')['Tempo_APC_Minutos'].sum().reset_index(), values='Tempo_APC_Minutos', names='Canal', hole=0.4, color_discrete_map={'Fulfillment': '#3498DB', '1P Fornecedor': '#F39C12'})
@@ -596,8 +520,6 @@ if pagina == "🏠 Painel Operacional":
             
         with col_tab:
             st.markdown("**Cargas do Dia (👇 Clique em uma linha para inspecionar)**")
-            
-            # Prepara a tabela e reseta o índice para o clique funcionar perfeitamente
             df_tabela_dia = df_dia_critico[['Status', 'Canal', 'Linhas', 'Agenda_Texto', 'Fornecedor', 'Qtd Peças', 'Tempo_APC_Minutos']].rename(columns={'Agenda_Texto': 'Agenda', 'Tempo_APC_Minutos': 'APC (Min)'}).sort_values(by='APC (Min)', ascending=False).reset_index(drop=True)
             
             evento_agenda = st.dataframe(
@@ -608,11 +530,7 @@ if pagina == "🏠 Painel Operacional":
                 selection_mode="single-row"
             )
 
-        # ====================================================================
-        # DETALHAMENTO DA CARGA SELECIONADA
-        # ====================================================================
         st.markdown("### 📦 Detalhamento da Carga")
-        
         linhas_sel = evento_agenda.selection.rows
         
         if linhas_sel:
@@ -653,32 +571,37 @@ if pagina == "🏠 Painel Operacional":
             st.info("👆 Selecione uma carga na tabela acima para ver os produtos dela.")
             
     else: st.success("✅ A operação fluiu sem gargalos no período analisado!")
-        
+
 # ==============================================================================
-# NOVA PÁGINA: PREVISÃO DE AGENDAS (CENÁRIO)
+# PÁGINA 2: PREVISÃO DE AGENDAS (CENÁRIO)
 # ==============================================================================
 elif pagina == "📅 Previsão de Agendas":
     st.title("📅 Previsão de Agendas (Cenário)")
     st.markdown(f"**Cenário Projetado para o período:** {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
     st.caption("💡 *Dica: Selecione a data de amanhã no filtro lateral para ter a visão exata do planejamento do próximo dia.*")
     
-    # --- PREPARAÇÃO DE DADOS ---
-    df_1p_prev = df_filtrado_op[df_filtrado_op['Canal'] == '1P Fornecedor']
-    df_full_prev = df_filtrado_op[df_filtrado_op['Canal'] == 'Fulfillment']
+    df_filtrado_prev = df[(df['Data'] >= ts_inicio) & (df['Data'] <= ts_fim)].copy() if not df.empty else pd.DataFrame()
+    
+    if not df_filtrado_prev.empty:
+        df_1p_prev = df_filtrado_prev[df_filtrado_prev['Canal'] == '1P Fornecedor']
+        df_full_prev = df_filtrado_prev[df_filtrado_prev['Canal'] == 'Fulfillment']
+    else:
+        df_1p_prev = pd.DataFrame()
+        df_full_prev = pd.DataFrame()
+
     df_transf_prev = pd.DataFrame()
     if not df_transf.empty and 'DATA_FILTRO' in df_transf.columns:
         df_transf_prev = df_transf[(df_transf['DATA_FILTRO'] >= ts_inicio) & (df_transf['DATA_FILTRO'] <= ts_fim)].copy()
     
-    # --- KPIs GLOBAIS ---
-    total_agendas = df_filtrado_op['Agenda_Texto'].nunique()
+    total_agendas = df_filtrado_prev['Agenda_Texto'].nunique() if not df_filtrado_prev.empty else 0
     total_cargas_transf = df_transf_prev['ID_CARGA_PCP'].nunique() if not df_transf_prev.empty and 'ID_CARGA_PCP' in df_transf_prev.columns else 0
     total_veiculos = total_agendas + total_cargas_transf
     
-    total_pecas_op = df_filtrado_op['Qtd Peças'].sum()
+    total_pecas_op = df_filtrado_prev['Qtd Peças'].sum() if not df_filtrado_prev.empty else 0
     total_pecas_transf = df_transf_prev['QTDE'].sum() if not df_transf_prev.empty and 'QTDE' in df_transf_prev.columns else 0
     total_pecas_geral = total_pecas_op + total_pecas_transf
     
-    min_op = df_filtrado_op['Tempo_APC_Minutos'].sum()
+    min_op = df_filtrado_prev['Tempo_APC_Minutos'].sum() if not df_filtrado_prev.empty else 0
     min_fixo = 1200 if pd.to_datetime(data_inicio).weekday() < 5 else 0 
     eq_projetadas = math.ceil((min_op + min_fixo) / 427)
     
@@ -686,17 +609,15 @@ elif pagina == "📅 Previsão de Agendas":
     with col_k1: exibir_kpi("Equipes Necessárias", eq_projetadas, "Projeção APC", "#E74C3C")
     with col_k2: exibir_kpi("Veículos Esperados", total_veiculos, f"{total_agendas} Agendas + {total_cargas_transf} Transf.", "#3498DB")
     with col_k3: exibir_kpi("Volume Físico (Peças)", f"{total_pecas_geral:,.0f}".replace(',', '.'), "1P + Full + Transf", "#9B59B6")
-    with col_k4: exibir_kpi("Agendas de Full", df_full_prev['Agenda_Texto'].nunique(), "Cargas Seller", "#F39C12")
+    with col_k4: exibir_kpi("Agendas de Full", df_full_prev['Agenda_Texto'].nunique() if not df_full_prev.empty else 0, "Cargas Seller", "#F39C12")
 
     st.markdown("---")
     
-    # --- VISÃO EM 3 COLUNAS (INSPIRADO NO PRINT) ---
     col_1p, col_seller, col_transf = st.columns(3)
     
-    # Função Mágica para criar as tabelas com barra de progresso embutida
     def formatar_tabela_barras(df_agrupado, col_agrupamento, cor_barra):
         if df_agrupado.empty: 
-            st.info("Sem dados")
+            st.info("Sem dados para este canal.")
             return
         
         df_show = df_agrupado.groupby(col_agrupamento).agg(
@@ -719,51 +640,39 @@ elif pagina == "📅 Previsão de Agendas":
             }
         )
     
-    # 1. COLUNA 1P FORNECEDOR
     with col_1p:
         st.markdown("<h4 style='color: #0086FF; margin-bottom: 0px;'>📦 AGENDAS 1P</h4>", unsafe_allow_html=True)
         st.caption("Detalhamento de Fornecedores Tradicionais")
-        
         st.markdown("**1P (CATEGORIA)**")
         formatar_tabela_barras(df_1p_prev, 'Linhas', '#0086FF')
-        
         st.markdown("**1P (FORNECEDOR)**")
         formatar_tabela_barras(df_1p_prev, 'Fornecedor', '#0086FF')
         
-    # 2. COLUNA SELLER / FULLFILLMENT
     with col_seller:
         st.markdown("<h4 style='color: #F39C12; margin-bottom: 0px;'>🛍️ AGENDAS SELLER</h4>", unsafe_allow_html=True)
         st.caption("Detalhamento de Fulfillment / MktPlace")
-        
         st.markdown("**SELLER (CATEGORIA)**")
         formatar_tabela_barras(df_full_prev, 'Linhas', '#F39C12')
-        
         st.markdown("**SELLER (FORNECEDOR)**")
         formatar_tabela_barras(df_full_prev, 'Fornecedor', '#F39C12')
         
-    # 3. COLUNA TRANSFERÊNCIAS
     with col_transf:
         st.markdown("<h4 style='color: #9B59B6; margin-bottom: 0px;'>🚛 AGENDAS TRANSFERÊNCIA</h4>", unsafe_allow_html=True)
         st.caption("Detalhamento de Malha / CD a CD")
-        
         if not df_transf_prev.empty and 'ID_CARGA_PCP' in df_transf_prev.columns:
-            # Transferência por Modalidade
             st.markdown("**TRANSFERÊNCIA (MODALIDADE)**")
             df_t_modal = df_transf_prev.groupby('MODAL2').agg(
                 Cargas=('ID_CARGA_PCP', 'nunique'),
                 SKUs=('PRODUTO', 'nunique') if 'PRODUTO' in df_transf_prev.columns else ('ID_CARGA_PCP', 'count'),
                 Peças=('QTDE', 'sum')
             ).reset_index().sort_values(by='Peças', ascending=False)
-            
             max_t_pecas = float(df_t_modal['Peças'].max()) if not df_t_modal.empty else 100.0
-            
             st.dataframe(
                 df_t_modal.rename(columns={'MODAL2': 'Modalidade'}),
                 use_container_width=True, hide_index=True,
                 column_config={"Peças": st.column_config.ProgressColumn("Peças Real", format="%.0f", min_value=0, max_value=max_t_pecas)}
             )
             
-            # Transferência por ID de Carga
             st.markdown("**TRANSFERÊNCIA (ID DA CARGA)**")
             df_t_id = df_transf_prev.groupby('ID_CARGA_PCP').agg(
                 Origem=('CD_EMPRESA', 'first') if 'CD_EMPRESA' in df_transf_prev.columns else ('ID_CARGA_PCP', 'first'),
@@ -771,10 +680,8 @@ elif pagina == "📅 Previsão de Agendas":
                 SKUs=('PRODUTO', 'nunique') if 'PRODUTO' in df_transf_prev.columns else ('ID_CARGA_PCP', 'count'),
                 Peças=('QTDE', 'sum')
             ).reset_index().sort_values(by='Peças', ascending=False)
-            
             df_t_id['Origem'] = 'CD ' + df_t_id['Origem'].astype(str)
             max_id_pecas = float(df_t_id['Peças'].max()) if not df_t_id.empty else 100.0
-            
             st.dataframe(
                 df_t_id.rename(columns={'ID_CARGA_PCP': 'ID 2900'}),
                 use_container_width=True, hide_index=True,
@@ -782,12 +689,13 @@ elif pagina == "📅 Previsão de Agendas":
             )
         else:
             st.info("Nenhuma transferência prevista no período.")
+
 # ==============================================================================
-# NOVA PÁGINA: PROVA DE SOBRECARGA (COMERCIAL)
+# PÁGINA 3: PROVA DE SOBRECARGA (COMERCIAL)
 # ==============================================================================
 elif pagina == "👷 Simulador Mão de Obra":
     st.title("⚖️ Análise de Mão de obra")
-    st.markdown("Esta visão simula o cenário do dia selecionado, com a quantidade de equipes disponíveis para o dia considerando (427 minutos por equipe).")
+    st.markdown("Esta visão simula o cenário do dia selecionado, balanceando as cargas de acordo com a quantidade de equipes disponíveis.")
     
     dias_disponiveis = sorted(df[df['Data'].notna()]['Data'].dt.strftime('%d/%m/%Y').unique())
     
@@ -796,16 +704,13 @@ elif pagina == "👷 Simulador Mão de Obra":
         st.sidebar.header("⚙️ Parâmetros da Simulação")
         dia_simulacao = st.sidebar.selectbox("Escolha um dia para balancear as cargas:", dias_disponiveis)
         
-        # --- NOVOS FILTROS DINÂMICOS ---
         total_equipes = st.sidebar.number_input("Total de Equipes Disponíveis", min_value=1, max_value=20, value=6)
         eq_transf = st.sidebar.number_input("Equipes focadas em Transferência", min_value=0, max_value=total_equipes, value=min(3, total_equipes))
-        
         max_madeira = max(0, total_equipes - eq_transf) 
         eq_madeira = st.sidebar.number_input("Equipes focadas em Madeira", min_value=0, max_value=max_madeira, value=min(2, max_madeira))
         
         df_simulacao = df[df['Data'].dt.strftime('%d/%m/%Y') == dia_simulacao].copy()
         
-        # Inicia as equipes zeradas de forma dinâmica
         tempo_equipes = {i: 0 for i in range(1, total_equipes + 1)}
         
         def nomear_equipe(i):
@@ -818,7 +723,6 @@ elif pagina == "👷 Simulador Mão de Obra":
         cargas_alocadas = []
         data_obj = pd.to_datetime(dia_simulacao, format='%d/%m/%Y')
         
-        # 1. Aloca as 5 Transferências nas Equipes Dedicadas (se existirem)
         eq_disponiveis_transf = list(range(1, eq_transf + 1)) if eq_transf > 0 else list(tempo_equipes.keys())
         
         if data_obj.weekday() < 5:
@@ -832,7 +736,6 @@ elif pagina == "👷 Simulador Mão de Obra":
                     'Detalhe': f'Transf CD Origem {i+1}'
                 })
         
-        # 2. Separa as cargas do dia
         cargas_madeira_lista = []
         cargas_restante = []
         for _, row in df_simulacao.iterrows():
@@ -846,11 +749,9 @@ elif pagina == "👷 Simulador Mão de Obra":
             else:
                 cargas_restante.append((minutos, tipo, forn[:15]))
                 
-        # Ordena do maior para o menor para encaixar os blocos grandes primeiro
         cargas_madeira_lista.sort(key=lambda x: x[0], reverse=True)
         cargas_restante.sort(key=lambda x: x[0], reverse=True)
         
-        # 3. Aloca a Madeira nas Equipes Dedicadas
         inicio_madeira = eq_transf + 1
         fim_madeira = eq_transf + eq_madeira
         eq_disponiveis_madeira = list(range(inicio_madeira, fim_madeira + 1)) if eq_madeira > 0 else list(tempo_equipes.keys())
@@ -865,7 +766,6 @@ elif pagina == "👷 Simulador Mão de Obra":
                 'Detalhe': det
             })
             
-        # 4. A MÁGICA: Distribui o resto para QUALQUER equipe que tenha a mochila mais vazia
         for min_val, tipo, det in cargas_restante:
             eq_num = min(tempo_equipes.keys(), key=lambda k: tempo_equipes[k])
             tempo_equipes[eq_num] += min_val
@@ -879,11 +779,9 @@ elif pagina == "👷 Simulador Mão de Obra":
         df_mochila = pd.DataFrame(cargas_alocadas)
         
         if not df_mochila.empty:
-            # Ordena graficamente de 1 até o total de equipes
             df_mochila['Ordem'] = df_mochila['Equipe'].str.extract(r'(\d+)').astype(int)
             df_mochila = df_mochila.sort_values(by="Ordem")
             
-            # --- KPIs ---
             minutos_totais = sum(tempo_equipes.values())
             capacidade_total_cd = total_equipes * 427
             equipes_estouradas = sum(1 for v in tempo_equipes.values() if v > 427)
@@ -899,7 +797,6 @@ elif pagina == "👷 Simulador Mão de Obra":
             else:
                 with col_s3: exibir_kpi("Déficit Inevitável", "0 min", "Operação dentro do limite", "#2ECC71")
 
-            # --- GRÁFICO ---
             fig_mochila = px.bar(
                 df_mochila, x='Equipe', y='Minutos', color='Tipo Carga', text='Detalhe',
                 title=f"Balanceamento Dinâmico de Cargas - Dia {dia_simulacao}",
@@ -914,12 +811,10 @@ elif pagina == "👷 Simulador Mão de Obra":
             fig_mochila.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', yaxis_title="Tempo de Doca (Minutos)", height=650)
             
             st.plotly_chart(fig_mochila, use_container_width=True)
-            
         else:
             st.warning("Nenhuma carga encontrada para o dia selecionado.")
     else:
         st.warning("Não há dados carregados para gerar a simulação.")
-
 
 # ==============================================================================
 # PÁGINA 4: MATRIZ DE PLANEJAMENTO (S&OP COMERCIAL)
@@ -1066,7 +961,6 @@ elif pagina == "🧩 Planejamento Lego":
     else:
         st.warning("⚠️ Planilha 'PLANEJAMENTO' vazia ou não encontrada no Google Sheets.")
 
-
 # ==============================================================================
 # PÁGINA 5: HISTÓRICO 325 (TRANSFERÊNCIAS)
 # ==============================================================================
@@ -1134,11 +1028,6 @@ elif pagina == "🚛 Transferências" or pagina == "🚛 Histórico325":
             st.markdown("### 📑 Tabela de Acompanhamento (Master)")
             st.caption("👈 Clique em qualquer linha da tabela abaixo para ver os itens da carga.")
             
-            # ====================================================================
-            # NOVO: TABELA INTERATIVA (CLIQUE PARA SELECIONAR)
-            # ====================================================================
-            # O parâmetro on_select="rerun" faz a página recarregar quando uma linha é clicada
-            # selection_mode="single-row" garante que o usuário só clique em uma carga por vez
             evento_tabela = st.dataframe(
                 resumo_tabela, 
                 use_container_width=True, 
@@ -1147,31 +1036,24 @@ elif pagina == "🚛 Transferências" or pagina == "🚛 Histórico325":
                 selection_mode="single-row"
             )
 
-            # Verifica se alguma linha foi clicada pelo usuário
             linhas_selecionadas = evento_tabela.selection.rows
 
             if linhas_selecionadas:
-                # Pega o índice da linha clicada
                 indice_clicado = linhas_selecionadas[0]
-                
-                # Descobre qual é o ID_CARGA_PCP dessa linha
                 id_selecionado = resumo_tabela.iloc[indice_clicado]['ID2900 (Carga)']
 
                 st.markdown("---")
                 st.markdown(f"### 📦 Inspecionar Itens: Carga {id_selecionado}")
                 
-                # Filtra os dados brutos pelo ID escolhido
                 df_detalhe = df_transf_periodo[df_transf_periodo['ID_CARGA_PCP'] == id_selecionado].copy()
                 
                 if not df_detalhe.empty:
-                    # Busca as colunas dinamicamente para evitar erro se o nome mudar levemente
                     desc_col = next((c for c in df_detalhe.columns if 'DESCRI' in c), None)
                     prod_col = next((c for c in df_detalhe.columns if 'PRODUTO' in c or 'SKU' in c), None)
                     qtd_col = next((c for c in df_detalhe.columns if 'QTDE' in c or 'QTD' in c), None)
                     ped_col = next((c for c in df_detalhe.columns if 'PED_ORIGEM' in c), 'NU_PED_ORIGEM')
                     mod_col = next((c for c in df_detalhe.columns if 'MODAL2' in c), 'MODAL2')
                     
-                    # KPIs rápidos da carga
                     total_pecas_id = df_detalhe[qtd_col].sum() if qtd_col else 0
                     total_skus_id = df_detalhe[prod_col].nunique() if prod_col else 0
                     
@@ -1179,7 +1061,6 @@ elif pagina == "🚛 Transferências" or pagina == "🚛 Histórico325":
                     with col_det1: exibir_kpi("📦 SKUs Distintos", total_skus_id, "Mix de produtos", "#3498DB")
                     with col_det2: exibir_kpi("🔢 Total de Peças", f"{total_pecas_id:,.0f}".replace(',', '.'), "Volume Físico", "#9B59B6")
                     
-                    # Monta a tabela de exibição
                     cols_to_show = []
                     rename_dict = {}
                     
@@ -1197,7 +1078,6 @@ elif pagina == "🚛 Transferências" or pagina == "🚛 Histórico325":
                 else:
                     st.warning("Nenhum detalhe encontrado para esta carga.")
             else:
-                # Mensagem amigável caso não tenha clicado em nada ainda
                 st.info("👆 Selecione uma carga na tabela acima para ver os detalhes dos produtos.")
 
             st.markdown("---")
@@ -1220,7 +1100,6 @@ elif pagina == "🚛 Transferências" or pagina == "🚛 Histórico325":
             st.warning("A coluna 'ID_CARGA_PCP' não foi encontrada na planilha de Transferências.")
     else:
         st.warning("⚠️ Planilha de Transferências não carregou. O e-mail do robô está como Leitor nela?")
-
 
 # ==============================================================================
 # PÁGINA 6: REGISTRO DE SOLICITAÇÕES EXTRAS
@@ -1278,19 +1157,3 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
