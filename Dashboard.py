@@ -911,34 +911,54 @@ elif pagina == "🚛 Transferências" or pagina == "🚛 Histórico325":
 
             st.markdown("---")
             st.markdown("### 📑 Tabela de Acompanhamento (Master)")
-            st.dataframe(resumo_tabela, use_container_width=True, hide_index=True)
+            st.caption("👈 Clique em qualquer linha da tabela abaixo para ver os itens da carga.")
+            
+            # ====================================================================
+            # NOVO: TABELA INTERATIVA (CLIQUE PARA SELECIONAR)
+            # ====================================================================
+            # O parâmetro on_select="rerun" faz a página recarregar quando uma linha é clicada
+            # selection_mode="single-row" garante que o usuário só clique em uma carga por vez
+            evento_tabela = st.dataframe(
+                resumo_tabela, 
+                use_container_width=True, 
+                hide_index=True,
+                on_select="rerun", 
+                selection_mode="single-row"
+            )
 
-            # ====================================================================
-            # NOVO: INSPECIONAR CARGA DETALHADA (TRANSFERÊNCIA)
-            # ====================================================================
-            st.markdown("---")
-            st.markdown("### 📦 Inspecionar Itens da Carga")
-            
-            lista_ids = [""] + list(resumo_tabela['ID2900 (Carga)'].unique())
-            id_selecionado = st.selectbox("Selecione ou digite o ID da Carga para ver o detalhamento:", options=lista_ids)
-            
-            if id_selecionado != "":
+            # Verifica se alguma linha foi clicada pelo usuário
+            linhas_selecionadas = evento_tabela.selection.rows
+
+            if linhas_selecionadas:
+                # Pega o índice da linha clicada
+                indice_clicado = linhas_selecionadas[0]
+                
+                # Descobre qual é o ID_CARGA_PCP dessa linha
+                id_selecionado = resumo_tabela.iloc[indice_clicado]['ID2900 (Carga)']
+
+                st.markdown("---")
+                st.markdown(f"### 📦 Inspecionar Itens: Carga {id_selecionado}")
+                
+                # Filtra os dados brutos pelo ID escolhido
                 df_detalhe = df_transf_periodo[df_transf_periodo['ID_CARGA_PCP'] == id_selecionado].copy()
                 
                 if not df_detalhe.empty:
+                    # Busca as colunas dinamicamente para evitar erro se o nome mudar levemente
                     desc_col = next((c for c in df_detalhe.columns if 'DESCRI' in c), None)
                     prod_col = next((c for c in df_detalhe.columns if 'PRODUTO' in c or 'SKU' in c), None)
                     qtd_col = next((c for c in df_detalhe.columns if 'QTDE' in c or 'QTD' in c), None)
                     ped_col = next((c for c in df_detalhe.columns if 'PED_ORIGEM' in c), 'NU_PED_ORIGEM')
                     mod_col = next((c for c in df_detalhe.columns if 'MODAL2' in c), 'MODAL2')
                     
+                    # KPIs rápidos da carga
                     total_pecas_id = df_detalhe[qtd_col].sum() if qtd_col else 0
                     total_skus_id = df_detalhe[prod_col].nunique() if prod_col else 0
                     
                     col_det1, col_det2 = st.columns(2)
-                    with col_det1: exibir_kpi("📦 SKUs Distintos", total_skus_id, f"Carga {id_selecionado}", "#3498DB")
+                    with col_det1: exibir_kpi("📦 SKUs Distintos", total_skus_id, "Mix de produtos", "#3498DB")
                     with col_det2: exibir_kpi("🔢 Total de Peças", f"{total_pecas_id:,.0f}".replace(',', '.'), "Volume Físico", "#9B59B6")
                     
+                    # Monta a tabela de exibição
                     cols_to_show = []
                     rename_dict = {}
                     
@@ -955,6 +975,9 @@ elif pagina == "🚛 Transferências" or pagina == "🚛 Histórico325":
                         st.warning("Colunas de detalhamento não encontradas na base.")
                 else:
                     st.warning("Nenhum detalhe encontrado para esta carga.")
+            else:
+                # Mensagem amigável caso não tenha clicado em nada ainda
+                st.info("👆 Selecione uma carga na tabela acima para ver os detalhes dos produtos.")
 
             st.markdown("---")
             st.markdown("### 📈 Análise de Fluxo")
@@ -1034,6 +1057,7 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
+
 
 
 
