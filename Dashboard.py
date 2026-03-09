@@ -212,32 +212,59 @@ def carregar_dados():
             
             df['Tempo_APC_Minutos'] = df.apply(calcular_minutos, axis=1)
 
+# ==============================================================================
+        # 2. ABA ITEM AGENDA (1P E FULFILLMENT)
         # ==============================================================================
-        # 2. ABA ITEM AGENDA
-        # ==============================================================================
+        df_itens_1p = pd.DataFrame()
+        df_itens_full = pd.DataFrame()
+
+        # A) Lê os itens de 1P Fornecedor
         try:
             ws_itens = planilha_principal.worksheet("Item Agenda")
             dados_itens = ws_itens.get_all_values()
             if dados_itens and len(dados_itens) > 1:
-                df_itens = pd.DataFrame(dados_itens[1:], columns=dados_itens[0])
-                df_itens = df_itens.loc[:, ~df_itens.columns.duplicated()]
-                df_itens = df_itens.loc[:, df_itens.columns != '']
-                df_itens.columns = df_itens.columns.str.strip().str.upper()
+                df_itens_1p = pd.DataFrame(dados_itens[1:], columns=dados_itens[0])
+                df_itens_1p = df_itens_1p.loc[:, ~df_itens_1p.columns.duplicated()]
+                df_itens_1p.columns = df_itens_1p.columns.str.strip().str.upper()
                 
                 map_itens = {}
                 alvos_itens = set()
-                for c in df_itens.columns:
+                for c in df_itens_1p.columns:
                     if 'AGENDA' in c and 'Agenda' not in alvos_itens: map_itens[c] = 'Agenda'; alvos_itens.add('Agenda')
-                    elif ('SKU' in c or 'COMPITEM' in c or 'CÓDIGO' in c or 'CODIGO' in c) and 'SKU' not in alvos_itens: map_itens[c] = 'SKU'; alvos_itens.add('SKU')
+                    elif ('SKU' in c or 'COMPITEM' in c or 'CÓDIGO' in c) and 'SKU' not in alvos_itens: map_itens[c] = 'SKU'; alvos_itens.add('SKU')
                     elif ('DESCRI' in c or 'PRODUTO' in c) and 'Descrição' not in alvos_itens: map_itens[c] = 'Descrição'; alvos_itens.add('Descrição')
                     elif 'LINHA' in c and 'Linhas' not in alvos_itens: map_itens[c] = 'Linhas'; alvos_itens.add('Linhas')
                     elif 'CATEGORIA' in c and 'Categoria' not in alvos_itens: map_itens[c] = 'Categoria'; alvos_itens.add('Categoria')
                     elif ('PEÇA' in c or 'PECA' in c or 'QTCOMP' in c) and 'Qtd Peças' not in alvos_itens: map_itens[c] = 'Qtd Peças'; alvos_itens.add('Qtd Peças')
                 
-                df_itens = df_itens.rename(columns=map_itens)
-                df_itens = df_itens.loc[:, ~df_itens.columns.duplicated()]
-                if 'Agenda' in df_itens.columns: df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.split('.').str[0].str.strip()
+                df_itens_1p = df_itens_1p.rename(columns=map_itens)
         except: pass 
+
+        # B) Lê os itens de Fulfillment
+        try:
+            ws_itens_full = planilha_principal.worksheet("Item Agenda Seller")
+            dados_itens_full = ws_itens_full.get_all_values()
+            if dados_itens_full and len(dados_itens_full) > 1:
+                df_itens_full = pd.DataFrame(dados_itens_full[1:], columns=dados_itens_full[0])
+                df_itens_full = df_itens_full.loc[:, ~df_itens_full.columns.duplicated()]
+                df_itens_full.columns = df_itens_full.columns.str.strip().str.upper()
+                
+                # Mapeamento exato das colunas de Fulfillment
+                map_full = {
+                    'CODAGENDA': 'Agenda',
+                    'ITEM': 'SKU',
+                    'DESCRIÇÃO SKU': 'Descrição',
+                    'LINHA': 'Linhas',
+                    'ITEMS.LIST.ELEMENT.CATEGORY.FAMILY.NAME': 'Categoria',
+                    'QTAGENDA': 'Qtd Peças'
+                }
+                df_itens_full = df_itens_full.rename(columns=lambda x: map_full.get(x, x))
+        except: pass
+
+        # C) Junta as duas bases e limpa o número da agenda
+        df_itens = pd.concat([df_itens_1p, df_itens_full], ignore_index=True)
+        if not df_itens.empty and 'Agenda' in df_itens.columns:
+            df_itens['Agenda'] = df_itens['Agenda'].astype(str).str.split('.').str[0].str.strip()
 
         # ==============================================================================
         # 3. ABA PLANEJAMENTO
@@ -965,6 +992,7 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
+
 
 
 
