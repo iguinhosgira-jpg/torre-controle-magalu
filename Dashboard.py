@@ -576,7 +576,7 @@ if pagina == "🏠 Painel Operacional":
 # PÁGINA 2: PREVISÃO DE AGENDAS (CENÁRIO SÊNIOR)
 # ==============================================================================
 elif pagina == "📅 Previsão de Agendas":
-    st.title("📅 Previsão de Agendas | Visão Estratégica")
+    st.title("📅 Previsão de Agendas")
     st.markdown(f"**Projeção de Cenário para o período:** {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
     
     df_filtrado_prev = df[(df['Data'] >= ts_inicio) & (df['Data'] <= ts_fim)].copy() if not df.empty else pd.DataFrame()
@@ -630,8 +630,8 @@ elif pagina == "📅 Previsão de Agendas":
 
     st.markdown("---")
 
-    st.markdown("### 🔍 Drill-Down por Canal Operacional")
-    tab_1p, tab_full, tab_transf = st.tabs(["📦 1P Fornecedor", "🛍️ Seller / Fulfillment", "🚛 Malha / Transferências"])
+    st.markdown("### 🔍 Detalhado Operacional")
+    tab_1p, tab_full, tab_transf = st.tabs(["📦 1P Fornecedor", "🛍️ Seller / Fulfillment", "🚛 Transferências"])
 
     def renderizar_detalhe(df_dados, cor_hex, nome_canal):
         if df_dados.empty:
@@ -702,7 +702,7 @@ elif pagina == "📅 Previsão de Agendas":
 # PÁGINA 3: PROVA DE SOBRECARGA (COMERCIAL)
 # ==============================================================================
 elif pagina == "👷 Simulador Mão de Obra":
-    st.title("⚖️ Análise de Mão de obra")
+    st.title("👷 Análise de Mão de obra")
     st.markdown("Esta visão simula o cenário do dia selecionado, balanceando as cargas de acordo com a quantidade de equipes disponíveis.")
     
     dias_disponiveis = sorted(df[df['Data'].notna()]['Data'].dt.strftime('%d/%m/%Y').unique())
@@ -833,7 +833,7 @@ elif pagina == "🧩 Planejamento Lego":
     df_plan_filtrado = df_plan[(df_plan['data'] >= ts_inicio) & (df_plan['data'] <= ts_fim)].copy() if not df_plan.empty else pd.DataFrame()
 
     if not df_plan.empty:
-        st.markdown("### 🎯 Planejamento Mensal do Comercial")
+        st.markdown("### 🎯 Planejamento Mensal Supply")
         st.write("Digite as vagas aprovadas (LEGO) e clique em Salvar. O sistema gravará na Nuvem (Google Sheets).")
         
         categorias_existentes = sorted([c for c in df_plan['categoria'].unique() if pd.notna(c) and str(c).strip() != ''])
@@ -1033,7 +1033,7 @@ elif pagina == "🚛 Transferências" or pagina == "🚛 Histórico325":
             with col_t3: exibir_kpi("🔢 Volume Físico", f"{total_pecas:,.0f}".replace(',', '.'), "Peças a receber", "#2ECC71")
 
             st.markdown("---")
-            st.markdown("### 📑 Tabela de Acompanhamento (Master)")
+            st.markdown("### 📑 Tabela de Acompanhamento")
             st.caption("👈 Clique em qualquer linha da tabela abaixo para ver os itens da carga.")
             
             evento_tabela = st.dataframe(
@@ -1089,7 +1089,7 @@ elif pagina == "🚛 Transferências" or pagina == "🚛 Histórico325":
                 st.info("👆 Selecione uma carga na tabela acima para ver os detalhes dos produtos.")
 
             st.markdown("---")
-            st.markdown("### 📈 Análise de Fluxo")
+            st.markdown("### 📈 Análise")
             
             graf_col1, graf_col2 = st.columns([2, 1])
             with graf_col1:
@@ -1165,3 +1165,4 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
+
