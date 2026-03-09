@@ -517,47 +517,73 @@ if pagina == "🏠 Painel Operacional":
         with met_col3: exibir_kpi("🚨 H.E. Projetadas", f"{dados_apc_dia['Horas_Extras']} h", f"Custo: {formatar_moeda(dados_apc_dia['Custo_HE'])}", "#E74C3C")
         with met_col4: exibir_kpi("Volume de Peças", f"{df_dia_critico['Qtd Peças'].sum():,.0f}".replace(',', '.'), "Físico", "#9B59B6")
         
+        # ====================================================================
+        # TABELA DE AGENDAS INTERATIVA 
+        # ====================================================================
         col_chart, col_tab = st.columns([1, 2])
         with col_chart:
             fig_canais = px.pie(df_dia_critico.groupby('Canal')['Tempo_APC_Minutos'].sum().reset_index(), values='Tempo_APC_Minutos', names='Canal', hole=0.4, color_discrete_map={'Fulfillment': '#3498DB', '1P Fornecedor': '#F39C12'})
             fig_canais.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig_canais, use_container_width=True)
-        with col_tab:
-            st.dataframe(df_dia_critico[['Status', 'Canal', 'Linhas', 'Agenda_Texto', 'Fornecedor', 'Qtd Peças', 'Tempo_APC_Minutos']].rename(columns={'Agenda_Texto': 'Agenda', 'Tempo_APC_Minutos': 'APC (Min)'}).sort_values(by='APC (Min)', ascending=False), use_container_width=True, hide_index=True)
-
-        st.markdown("### 📦 Inspecionar Carga")
-        agenda_selecionada = st.selectbox("Escolha uma agenda do dia para ver o detalhamento:", df_dia_critico['Agenda_Texto'].unique())
-        
-        if not df_itens.empty and 'Agenda' in df_itens.columns:
-            agenda_limpa = str(agenda_selecionada).split('.')[0].strip()
-            df_produtos_agenda = df_itens[df_itens['Agenda'] == agenda_limpa].copy()
             
-            if not df_produtos_agenda.empty: 
-                colunas_exibir = [c for c in ['SKU', 'Descrição', 'Linhas', 'Categoria'] if c in df_produtos_agenda.columns]
-                
-                if 'Qtd Peças' in df_produtos_agenda.columns:
-                    df_produtos_agenda['Qtd Peças'] = pd.to_numeric(df_produtos_agenda['Qtd Peças'], errors='coerce').fillna(0)
-                    resumo_itens = df_produtos_agenda.groupby(colunas_exibir)['Qtd Peças'].sum().reset_index()
-                    total_pecas = resumo_itens['Qtd Peças'].sum()
-                else:
-                    resumo_itens = df_produtos_agenda.groupby(colunas_exibir).size().reset_index(name='Qtd Itens')
-                    total_pecas = resumo_itens['Qtd Itens'].sum()
-                
-                total_skus = len(resumo_itens)
-                df_fornecedor_temp = df_dia_critico[df_dia_critico['Agenda_Texto'] == agenda_selecionada]
-                fornecedor_nome = df_fornecedor_temp['Fornecedor'].iloc[0] if not df_fornecedor_temp.empty else "Não Informado"
+        with col_tab:
+            st.markdown("**Cargas do Dia (👇 Clique em uma linha para inspecionar)**")
+            
+            # Prepara a tabela e reseta o índice para o clique funcionar perfeitamente
+            df_tabela_dia = df_dia_critico[['Status', 'Canal', 'Linhas', 'Agenda_Texto', 'Fornecedor', 'Qtd Peças', 'Tempo_APC_Minutos']].rename(columns={'Agenda_Texto': 'Agenda', 'Tempo_APC_Minutos': 'APC (Min)'}).sort_values(by='APC (Min)', ascending=False).reset_index(drop=True)
+            
+            evento_agenda = st.dataframe(
+                df_tabela_dia, 
+                use_container_width=True, 
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row"
+            )
 
-                st.markdown(f"#### Resumo da Agenda: {agenda_limpa}")
-                kpi_c1, kpi_c2, kpi_c3 = st.columns(3)
-                with kpi_c1: exibir_kpi("📦 Qtd de SKUs", f"{total_skus}", "Itens distintos", "#3498DB")
-                with kpi_c2: exibir_kpi("🔢 Qtd Peças Totais", f"{total_pecas:,.0f}".replace(',', '.'), "Volume da carga", "#9B59B6")
-                with kpi_c3: exibir_kpi("🏢 Fornecedor", f"{fornecedor_nome[:22]}", "Origem", "#F39C12")
+        # ====================================================================
+        # DETALHAMENTO DA CARGA SELECIONADA
+        # ====================================================================
+        st.markdown("### 📦 Detalhamento da Carga")
+        
+        linhas_sel = evento_agenda.selection.rows
+        
+        if linhas_sel:
+            indice_agenda = linhas_sel[0]
+            agenda_selecionada = df_tabela_dia.iloc[indice_agenda]['Agenda']
+            
+            if not df_itens.empty and 'Agenda' in df_itens.columns:
+                agenda_limpa = str(agenda_selecionada).split('.')[0].strip()
+                df_produtos_agenda = df_itens[df_itens['Agenda'] == agenda_limpa].copy()
                 
-                st.dataframe(resumo_itens, use_container_width=True, hide_index=True)
-            else: 
-                st.warning(f"Os itens da agenda {agenda_limpa} não foram encontrados na base.")
+                if not df_produtos_agenda.empty: 
+                    colunas_exibir = [c for c in ['SKU', 'Descrição', 'Linhas', 'Categoria'] if c in df_produtos_agenda.columns]
+                    
+                    if 'Qtd Peças' in df_produtos_agenda.columns:
+                        df_produtos_agenda['Qtd Peças'] = pd.to_numeric(df_produtos_agenda['Qtd Peças'], errors='coerce').fillna(0)
+                        resumo_itens = df_produtos_agenda.groupby(colunas_exibir)['Qtd Peças'].sum().reset_index()
+                        total_pecas = resumo_itens['Qtd Peças'].sum()
+                    else:
+                        resumo_itens = df_produtos_agenda.groupby(colunas_exibir).size().reset_index(name='Qtd Itens')
+                        total_pecas = resumo_itens['Qtd Itens'].sum()
+                    
+                    total_skus = len(resumo_itens)
+                    df_fornecedor_temp = df_tabela_dia[df_tabela_dia['Agenda'] == agenda_selecionada]
+                    fornecedor_nome = df_fornecedor_temp['Fornecedor'].iloc[0] if not df_fornecedor_temp.empty else "Não Informado"
+
+                    st.markdown(f"#### Resumo da Agenda: {agenda_limpa}")
+                    kpi_c1, kpi_c2, kpi_c3 = st.columns(3)
+                    with kpi_c1: exibir_kpi("📦 Qtd de SKUs", f"{total_skus}", "Itens distintos", "#3498DB")
+                    with kpi_c2: exibir_kpi("🔢 Qtd Peças Totais", f"{total_pecas:,.0f}".replace(',', '.'), "Volume da carga", "#9B59B6")
+                    with kpi_c3: exibir_kpi("🏢 Fornecedor", f"{fornecedor_nome[:22]}", "Origem", "#F39C12")
+                    
+                    st.dataframe(resumo_itens, use_container_width=True, hide_index=True)
+                else: 
+                    st.warning(f"Os itens da agenda {agenda_limpa} não foram encontrados na base.")
+            else:
+                st.warning("Base de Itens indisponível.")
         else:
-            st.warning("Base de Itens indisponível.")
+            st.info("👆 Selecione uma carga na tabela acima para ver os produtos dela.")
+            
     else: st.success("✅ A operação fluiu sem gargalos no período analisado!")
 
 
@@ -1057,6 +1083,7 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
+
 
 
 
