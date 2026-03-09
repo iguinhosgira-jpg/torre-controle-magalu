@@ -315,6 +315,10 @@ st.sidebar.header("📍 Menu de Navegação")
 pagina = st.sidebar.radio("Ir para:", ["🏠 Painel Operacional", "👷 Simulador Mão de Obra", "🧩 Planejamento Lego", "🚛 Transferências", "📝 Solicitações Extras"])
 st.sidebar.markdown("---")
 
+if st.sidebar.button("🔄 Atualizar Dados Agora", use_container_width=True):
+    st.cache_data.clear() # Isso limpa a memória de 5 minutos
+    st.rerun() # Isso faz o painel piscar e buscar tudo de novo
+
 st.sidebar.header("📅 Período de Análise")
 
 hoje = pd.Timestamp.now(tz='America/Sao_Paulo').date()
@@ -961,6 +965,7 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
+
 
 
 
