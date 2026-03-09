@@ -191,7 +191,7 @@ def carregar_dados():
                             t = 90
                             if 'MADEIRA' in l: 
                                 if row.get('Pecas_Madeira', 0) > 10:
-                                    t = 180 if 'TUBRAX' in forn_original else 427
+                                    t = 110 if 'TUBRAX' in forn_original else 427
                                 else:
                                     t = 90
                             elif 'PNEU' in l: t = 240
@@ -579,7 +579,6 @@ elif pagina == "📅 Previsão de Agendas":
     st.title("📅 Previsão de Agendas | Visão Estratégica")
     st.markdown(f"**Projeção de Cenário para o período:** {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
     
-    # --- 1. PREPARAÇÃO DE DADOS SEGURA ---
     df_filtrado_prev = df[(df['Data'] >= ts_inicio) & (df['Data'] <= ts_fim)].copy() if not df.empty else pd.DataFrame()
     
     df_1p_prev = df_filtrado_prev[df_filtrado_prev['Canal'] == '1P Fornecedor'] if not df_filtrado_prev.empty else pd.DataFrame()
@@ -589,7 +588,6 @@ elif pagina == "📅 Previsão de Agendas":
     if not df_transf.empty and 'DATA_FILTRO' in df_transf.columns:
         df_transf_prev = df_transf[(df_transf['DATA_FILTRO'] >= ts_inicio) & (df_transf['DATA_FILTRO'] <= ts_fim)].copy()
     
-    # Cálculos Globais
     agendas_1p = df_1p_prev['Agenda_Texto'].nunique() if not df_1p_prev.empty else 0
     agendas_full = df_full_prev['Agenda_Texto'].nunique() if not df_full_prev.empty else 0
     cargas_transf = df_transf_prev['ID_CARGA_PCP'].nunique() if not df_transf_prev.empty and 'ID_CARGA_PCP' in df_transf_prev.columns else 0
@@ -602,7 +600,6 @@ elif pagina == "📅 Previsão de Agendas":
     min_fixo = 1200 if pd.to_datetime(data_inicio).weekday() < 5 else 0 
     eq_projetadas = math.ceil((min_op + min_fixo) / 427)
 
-    # --- 2. EXECUTIVE SUMMARY (MACRO VISÃO) ---
     st.markdown("### 📊 Resumo Executivo")
     col_k1, col_k2, col_k3, col_k4 = st.columns(4)
     with col_k1: exibir_kpi("Equipes APC Necessárias", eq_projetadas, "Headcount projetado", "#E74C3C")
@@ -610,7 +607,6 @@ elif pagina == "📅 Previsão de Agendas":
     with col_k3: exibir_kpi("Volume Físico Estimado", f"{(pecas_1p + pecas_full + pecas_transf):,.0f}".replace(',', '.'), "Peças Totais", "#9B59B6")
     with col_k4: exibir_kpi("Agendas 1P", agendas_1p, "Fornecedor Tradicional", "#0086FF")
 
-    # --- 3. GRÁFICOS DE COMPOSIÇÃO (O TOQUE SÊNIOR) ---
     df_macro = pd.DataFrame({
         'Canal': ['1P Fornecedor', 'Fulfillment', 'Transferência'],
         'Veiculos': [agendas_1p, agendas_full, cargas_transf],
@@ -634,7 +630,6 @@ elif pagina == "📅 Previsão de Agendas":
 
     st.markdown("---")
 
-    # --- 4. DRILL-DOWN: ABAS DETALHADAS (O MICRO) ---
     st.markdown("### 🔍 Drill-Down por Canal Operacional")
     tab_1p, tab_full, tab_transf = st.tabs(["📦 1P Fornecedor", "🛍️ Seller / Fulfillment", "🚛 Malha / Transferências"])
 
@@ -644,7 +639,6 @@ elif pagina == "📅 Previsão de Agendas":
             return
         
         c1, c2 = st.columns([1, 2])
-        # Resumo por Linha/Categoria
         df_linha = df_dados.groupby('Linhas').agg(Agendas=('Agenda_Texto', 'nunique'), Peças=('Qtd Peças', 'sum')).reset_index().sort_values(by='Peças', ascending=False).head(8)
         
         with c1:
@@ -654,7 +648,6 @@ elif pagina == "📅 Previsão de Agendas":
             fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=0, b=0, l=0, r=0), xaxis_title="", yaxis_title="")
             st.plotly_chart(fig_bar, use_container_width=True)
         
-        # Tabela de Fornecedores com Barra de Progresso
         with c2:
             st.markdown(f"**Painel de Fornecedores ({nome_canal})**")
             df_forn = df_dados.groupby('Fornecedor').agg(Agendas=('Agenda_Texto', 'nunique'), SKUs=('Qtd SKUs', 'sum'), Peças=('Qtd Peças', 'sum')).reset_index().sort_values(by='Peças', ascending=False)
@@ -668,22 +661,18 @@ elif pagina == "📅 Previsão de Agendas":
                 }
             )
 
-    # Conteúdo Aba 1P
     with tab_1p:
         renderizar_detalhe(df_1p_prev, '#0086FF', '1P')
 
-    # Conteúdo Aba Full
     with tab_full:
         renderizar_detalhe(df_full_prev, '#F39C12', 'Fulfillment')
 
-    # Conteúdo Aba Transferência (Customizado devido às colunas diferentes)
     with tab_transf:
         if df_transf_prev.empty or 'ID_CARGA_PCP' not in df_transf_prev.columns:
             st.info("Nenhuma Transferência prevista para esta data.")
         else:
             c_t1, c_t2 = st.columns([1, 2])
             
-            # Gráfico por Modalidade
             df_modal = df_transf_prev.groupby('MODAL2').agg(Peças=('QTDE', 'sum')).reset_index().sort_values(by='Peças', ascending=False)
             with c_t1:
                 st.markdown("**Volume por Modalidade**")
@@ -692,7 +681,6 @@ elif pagina == "📅 Previsão de Agendas":
                 fig_t.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=0, b=0, l=0, r=0), xaxis_title="", yaxis_title="")
                 st.plotly_chart(fig_t, use_container_width=True)
             
-            # Tabela por ID de Carga
             with c_t2:
                 st.markdown("**Relação de Cargas Programadas**")
                 df_id = df_transf_prev.groupby('ID_CARGA_PCP').agg(
@@ -709,8 +697,6 @@ elif pagina == "📅 Previsão de Agendas":
                     use_container_width=True, hide_index=True, height=350,
                     column_config={"Peças": st.column_config.ProgressColumn("Volume Físico (Peças)", format="%.0f", min_value=0, max_value=max_t)}
                 )
-        else:
-            st.info("Nenhuma transferência prevista no período.")
 
 # ==============================================================================
 # PÁGINA 3: PROVA DE SOBRECARGA (COMERCIAL)
@@ -1179,5 +1165,3 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
-
-
