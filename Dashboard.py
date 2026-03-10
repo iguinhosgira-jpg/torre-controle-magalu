@@ -464,7 +464,7 @@ if pagina == "🏠 Painel Operacional":
             st.subheader("Balanço 1P")
             exibir_kpi("Dias Acima do Limite", df_limite_1p['Estourou_Limite'].sum(), "Necessita adequação", "#E74C3C")
             exibir_kpi("Volume 1P", df_limite_1p['Total_1P'].sum(), "Total de agendas 1P", "#3498DB")
-            exibir_kpi("Isentos (Cofres)", df_limite_1p['Qtd_Cofres'].sum(), "Não consomem doca padrão", "#95A5A6")
+            exibir_kpi("Isentos (Cofres)", df_limite_1p['Qtd_Cofres'].sum(), "Não medido em carros, limite peças 6 mil", "#95A5A6")
     else: st.info("Nenhuma agenda do canal 1P Fornecedor encontrada.")
 
     st.markdown("---")
@@ -1165,5 +1165,6 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
+
 
 
