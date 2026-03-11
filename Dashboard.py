@@ -871,7 +871,7 @@ elif pagina == "👷 Simulador Mão de Obra":
             # --- AJUSTE DE DIMENSÕES (ALTURA E LARGURA DAS BARRAS) ---
             fig_mochila.update_layout(
                 height=800,       # <-- AQUI VOCÊ CONTROLA A ALTURA (Aumentei para 800)
-                bargap=0.35       # <-- AQUI VOCÊ AFINA AS BARRAS (Quanto maior o número, mais finas)
+                bargap=0.10       # <-- AQUI VOCÊ AFINA AS BARRAS (Quanto maior o número, mais finas)
             )
             
             # --- AJUSTE DE LARGURA DO GRÁFICO NA TELA ---
@@ -1227,4 +1227,5 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
+
 
