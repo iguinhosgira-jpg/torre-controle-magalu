@@ -511,6 +511,54 @@ if pagina == "🏠 Painel Operacional":
             exibir_kpi("Isentos (Cofres)", df_limite_1p['Qtd_Cofres'].sum(), "Não consomem doca padrão", "#95A5A6")
     else: st.info("Nenhuma agenda do canal 1P Fornecedor encontrada.")
 
+    # ====================================================================
+    # NOVA VISÃO: PLANEJAMENTO LEGO LADO A LADO COM 1P
+    # ====================================================================
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("#### 🧱 Planejamento Lego: Vagas Liberadas pelo Comercial")
+    
+    if not df_plan.empty:
+        # Filtra a base do Lego pelas mesmas datas do filtro lateral
+        df_plan_1p = df_plan[(df_plan['data'] >= ts_inicio) & (df_plan['data'] <= ts_fim)].copy()
+        
+        if not df_plan_1p.empty:
+            # Aplica a mesma regra de isenção (Cofres não gastam doca)
+            df_plan_1p['Vagas_Validas'] = df_plan_1p.apply(lambda x: x['quantidade_planejado'] if 'COFRE' not in str(x['categoria']).upper() else 0, axis=1)
+            df_plan_1p['Vagas_Isentas'] = df_plan_1p.apply(lambda x: x['quantidade_planejado'] if 'COFRE' in str(x['categoria']).upper() else 0, axis=1)
+            
+            # Agrupa os volumes por dia
+            df_limite_lego = df_plan_1p.groupby('data').agg(
+                Total_Planejado=('quantidade_planejado', 'sum'),
+                Vagas_Validas=('Vagas_Validas', 'sum'),
+                Vagas_Isentas=('Vagas_Isentas', 'sum')
+            ).reset_index()
+            
+            df_limite_lego['Estourou_Limite'] = df_limite_lego['Vagas_Validas'] > limite_agendas_1p
+            
+            col_lg1, col_lg2 = st.columns([2, 1])
+            with col_lg1:
+                fig_lego = px.bar(
+                    df_limite_lego, x='data', y='Vagas_Validas', text='Vagas_Validas', 
+                    color='Estourou_Limite', color_discrete_map={False: '#3498DB', True: '#E74C3C'}, 
+                    labels={'Vagas_Validas': 'Vagas Liberadas', 'Estourou_Limite': 'Acima do Limite?'}, 
+                    title="Vagas Planejadas no Lego (1P)"
+                )
+                fig_lego.add_hline(y=limite_agendas_1p, line_dash="solid", line_width=3, line_color="#E74C3C", annotation_text=f"Capacidade: {limite_agendas_1p}")
+                fig_lego.update_traces(textposition='outside')
+                fig_lego.update_layout(xaxis=dict(tickformat="%d/%m/%Y"), showlegend=False)
+                fig_lego = aplicar_estilo_premium(fig_lego)
+                st.plotly_chart(fig_lego, use_container_width=True)
+                
+            with col_lg2:
+                st.subheader("Balanço Lego (Planejado)")
+                exibir_kpi("Dias Estourados (Lego)", df_limite_lego['Estourou_Limite'].sum(), "Dias acima do plano", "#E74C3C")
+                exibir_kpi("Volume Planejado", df_limite_lego['Total_Planejado'].sum(), "Total vagas liberadas", "#3498DB")
+                exibir_kpi("Isentos (Cofres)", df_limite_lego['Vagas_Isentas'].sum(), "Não consumem doca padrão", "#95A5A6")
+        else:
+            st.info("Nenhuma vaga liberada no Lego para o período filtrado.")
+    else:
+        st.info("Aba de planejamento Lego vazia ou indisponível.")
+
     st.markdown("---")
 
     st.header("👥 Visão APC - CD2900")
@@ -1223,6 +1271,7 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
+
 
 
 
