@@ -553,7 +553,7 @@ if pagina == "🏠 Painel Operacional":
                 st.subheader("Balanço Lego (Planejado)")
                 exibir_kpi("Dias Estourados (Lego)", df_limite_lego['Estourou_Limite'].sum(), "Dias acima do plano", "#E74C3C")
                 exibir_kpi("Volume Planejado", df_limite_lego['Total_Planejado'].sum(), "Total vagas liberadas", "#3498DB")
-                exibir_kpi("Isentos (Cofres)", df_limite_lego['Vagas_Isentas'].sum(), "Não consumem doca padrão", "#95A5A6")
+                exibir_kpi("Isentos (Cofres)", df_limite_lego['Vagas_Isentas'].sum(), "Não entra na capacidade Carros", "#95A5A6")
         else:
             st.info("Nenhuma vaga liberada no Lego para o período filtrado.")
     else:
@@ -1271,6 +1271,7 @@ elif pagina == "📝 Solicitações Extras":
         st.dataframe(df_exibir, use_container_width=True, hide_index=True)
     else:
         st.info("Nenhuma exceção válida registrada ou as colunas não batem com o padrão.")
+
 
 
 
